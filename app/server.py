@@ -52,7 +52,7 @@ def text(value, name, limit=300, required=False):
 
 
 def validate(doc):
-    if not isinstance(doc, dict) or doc.get('schemaVersion') != 1:
+    if not isinstance(doc, dict) or type(doc.get('schemaVersion')) is not int or doc.get('schemaVersion') != 1:
         raise ValueError('schemaVersion must be 1')
     timezone = text(doc.get('timezone', TZ), 'timezone', 100, True)
     try: ZoneInfo(timezone)
