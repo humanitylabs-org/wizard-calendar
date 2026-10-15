@@ -29,6 +29,22 @@ If changing `CALENDAR_PORT`, also set `WIZARD_TRUSTED_HOSTS` and
 `http://127.0.0.1:18788,http://localhost:18788`). Add the exact authenticated gateway
 host/origin when installed behind Wizard. Never use wildcard trust.
 
+### Use a prebuilt private image instead
+
+Download the matching `wizard-calendar-0.1.0-linux-arm64.tar.gz` or
+`wizard-calendar-0.1.0-linux-amd64.tar.gz` from this repository's private test release.
+Verify its SHA256 against the release receipt, then (example: arm64):
+
+```sh
+docker load -i wizard-calendar-0.1.0-linux-arm64.tar.gz
+python3 tools/fetch_core.py
+CALENDAR_IMAGE=wizard-calendar-test:0.1.0-arm64 docker compose -p calendar-test up -d --no-build
+```
+
+The images are release assets, not published to a registry. `images.json` distinguishes
+Docker image IDs from registry digests and gives archive SHA256 values for both architectures.
+The portable Runtipi payload needs only its pinned public Python base, not these image assets.
+
 ## Fixture/import proof
 
 ```sh
