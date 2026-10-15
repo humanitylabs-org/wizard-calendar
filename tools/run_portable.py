@@ -25,7 +25,7 @@ image=config['services']['wizard-calendar']['image']
 # Existing volume contents are retained; only the app-owned volume root gets its expected UID.
 volume=args.project+'_data'; core=args.project+'_core'
 origin=f'http://127.0.0.1:{args.port}'
-override={'services':{'wizard-calendar':{'ports':[f'127.0.0.1:{args.port}:8799'],'environment':{'WIZARD_CORE_DIR':'/core','WIZARD_TRUSTED_HOSTS':f'127.0.0.1:{args.port},localhost:{args.port}','WIZARD_TRUSTED_ORIGINS':f'{origin},http://localhost:{args.port}'},'volumes':[{'type':'volume','source':'calendar-data','target':'/data'},{'type':'volume','source':'calendar-core','target':'/core','read_only':True}]}},'volumes':{'calendar-data':{'name':volume},'calendar-core':{'name':core}}}
+override={'services':{'wizard-calendar':{'ports':[f'127.0.0.1:{args.port}:8799'],'environment':{'WIZARD_CORE_DIR':'/core','WIZARD_TRUSTED_HOSTS':f'127.0.0.1:{args.port},localhost:{args.port}','WIZARD_TRUSTED_ORIGINS':f'{origin},http://localhost:{args.port}'},'volumes':[{'type':'volume','source':'calendar-data','target':'/data'},{'type':'volume','source':'calendar-core','target':'/core','read_only':True}]}},'volumes':{'calendar-data':{'name':volume,'external':True},'calendar-core':{'name':core,'external':True}}}
 if args.platform:override['services']['wizard-calendar']['platform']=args.platform
 path=state/(args.project+'.json')
 path.write_text(json.dumps(override,indent=2)+'\n')
@@ -35,7 +35,7 @@ if args.action=='start':
     subprocess.run([sys.executable,str(root/'tools/fetch_core.py')],check=True)
     helper=['docker','run','--rm','-i','--user','0:0','--network','none']
     if args.platform:helper+=['--platform',args.platform]
-    helper+=['-v',volume+':/data','-v',core+':/core',image,'python','-c',"import os,sys; from pathlib import Path; os.chown('/data',1000,1000); os.chmod('/data',0o750); Path('/core/app-client.js').write_bytes(sys.stdin.buffer.read())"]
+    helper+=['-v',volume+':/data','-v',core+':/core',image,'python','-c',"import os,sys; from pathlib import Path; os.chown('/data',1000,1000); os.chmod('/data',0o750); p=Path('/core/app-client.tmp'); p.write_bytes(sys.stdin.buffer.read()); p.replace('/core/app-client.js')"]
     subprocess.run(helper,input=(state/'core/app-client.js').read_bytes(),check=True)
     subprocess.run(cmd+['up','-d','--no-build','--force-recreate'],env=env,check=True)
     print(f'Calendar started: {origin}/ (check /healthz). Data retained in {volume}.')
