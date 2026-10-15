@@ -8,6 +8,8 @@ import os
 import re
 import subprocess
 import sys
+import time
+import urllib.request
 from pathlib import Path
 
 parser=argparse.ArgumentParser(description=__doc__)
@@ -38,7 +40,14 @@ if args.action=='start':
     helper+=['-v',volume+':/data','-v',core+':/core',image,'python','-c',"import os,sys; from pathlib import Path; os.chown('/data',1000,1000); os.chmod('/data',0o750); p=Path('/core/app-client.tmp'); p.write_bytes(sys.stdin.buffer.read()); p.replace('/core/app-client.js')"]
     subprocess.run(helper,input=(state/'core/app-client.js').read_bytes(),check=True)
     subprocess.run(cmd+['up','-d','--no-build','--force-recreate'],env=env,check=True)
-    print(f'Calendar started: {origin}/ (check /healthz). Data retained in {volume}.')
+    for attempt in range(45):
+        try:
+            with urllib.request.urlopen(origin+'/healthz',timeout=2) as response: health=json.load(response)
+            if health.get('ok') and health.get('app')=='wizard-calendar': break
+        except (OSError,ValueError): pass
+        time.sleep(1)
+    else: raise SystemExit('Calendar did not become healthy; inspect the Compose service logs. Data volume retained.')
+    print(f'Calendar healthy: {origin}/. Data retained in {volume}.')
 elif args.action=='stop':
     subprocess.run(cmd+['down'],env=env,check=True)
     print(f'Stopped. Data volume {volume} retained. No data deletion was requested.')
