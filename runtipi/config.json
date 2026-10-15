@@ -1,0 +1,29 @@
+{
+  "name": "Calendar",
+  "id": "wizard-calendar",
+  "wizard_type": "service",
+  "available": true,
+  "short_desc": "Empty calendar viewer with explicit snapshot import.",
+  "author": "Humanity Labs",
+  "port": 8799,
+  "categories": [
+    "utilities"
+  ],
+  "description": "Private test release. Provider connector setup required; see OSCAR-SETUP.md.",
+  "tipi_version": 1,
+  "version": "0.1.0",
+  "source": "https://github.com/humanitylabs-org/wizard-calendar",
+  "exposable": false,
+  "supported_architectures": [
+    "amd64",
+    "arm64"
+  ],
+  "created_at": 1792063413573,
+  "updated_at": 1792063413573,
+  "dynamic_config": true,
+  "min_tipi_version": "4.8.0",
+  "uid": 1000,
+  "gid": 1000,
+  "form_fields": [],
+  "no_gui": false
+}

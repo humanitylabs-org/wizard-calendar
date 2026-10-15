@@ -1,0 +1,105 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Wizard Calendar API",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/healthz": {
+      "get": {
+        "summary": "Service identity and setup status",
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "403": {
+            "description": "Untrusted Host or Origin"
+          }
+        }
+      }
+    },
+    "/api/events": {
+      "get": {
+        "summary": "Visible snapshot; no network calls",
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "403": {
+            "description": "Untrusted Host or Origin"
+          }
+        }
+      }
+    },
+    "/api/export": {
+      "get": {
+        "summary": "Complete saved snapshot including hidden calendars",
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "403": {
+            "description": "Untrusted Host or Origin"
+          }
+        }
+      }
+    },
+    "/api/import": {
+      "post": {
+        "summary": "Atomically replace snapshot; see OSCAR-SETUP.md for schema and limits",
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "403": {
+            "description": "Untrusted Host or Origin"
+          }
+        }
+      }
+    },
+    "/api/calendars/visibility": {
+      "post": {
+        "summary": "Set visible boolean for a known calendar id",
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "403": {
+            "description": "Untrusted Host or Origin"
+          }
+        }
+      }
+    },
+    "/mcp": {
+      "post": {
+        "summary": "Stateless JSON-RPC MCP initialize, tools/list and calendar_events",
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "403": {
+            "description": "Untrusted Host or Origin"
+          }
+        }
+      }
+    }
+  }
+}

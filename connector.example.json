@@ -1,0 +1,12 @@
+{
+  "account": "you@example.com",
+  "timezone": "UTC",
+  "calendars": [
+    {
+      "id": "primary",
+      "name": "My calendar"
+    }
+  ],
+  "pastDays": 60,
+  "futureDays": 400
+}

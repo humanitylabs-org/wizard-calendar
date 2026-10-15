@@ -1,0 +1,6 @@
+**
+!app/
+!app/server.py
+!web/
+!web/*
+!openapi.json

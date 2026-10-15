@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "timezone": "UTC",
+  "calendars": [
+    {
+      "id": "fixture",
+      "name": "Synthetic test calendar"
+    }
+  ],
+  "events": [
+    {
+      "id": "fixture:timed",
+      "cal": "fixture",
+      "title": "Synthetic planning session",
+      "start": "2026-10-15T10:00:00Z",
+      "end": "2026-10-15T11:00:00Z",
+      "allDay": false,
+      "description": "Test-only data. Not a real appointment."
+    },
+    {
+      "id": "fixture:all-day",
+      "cal": "fixture",
+      "title": "Synthetic all-day example",
+      "start": "2026-10-15",
+      "end": "2026-10-16",
+      "allDay": true
+    }
+  ]
+}

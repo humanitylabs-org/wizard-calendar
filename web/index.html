@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en" data-app="calendar">
+<head>
+  <script src="/wizard-os-home/core/app-client.js"></script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#05030c">
+<title>Calendar</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+
+
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<main class="app">
+  <header class="bar">
+    <button class="nav" data-prev aria-label="Previous"><svg viewBox="0 0 24 24"><path d="m15 5-7 7 7 7"/></svg></button>
+    <button class="month" data-month title="Jump to today"></button>
+    <button class="nav" data-next-month aria-label="Next"><svg viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></svg></button>
+    <span class="grow"></span>
+    <button class="nav today-btn" data-today-btn aria-label="Jump to today" title="Today"><svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="16" rx="3.5"/><path d="M8.5 3v4M15.5 3v4"/></svg><b data-today-num></b></button>
+    <button class="nav" data-cals aria-label="Settings" title="Settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
+  </header>
+  <p class="status" data-status role="status">Loading calendar…</p>
+  <div class="scroll" data-scroll>
+    <div class="grid" data-grid></div>
+    <div class="agenda" data-agenda></div>
+    <footer class="foot" data-foot></footer>
+  </div>
+  <section class="tg" data-time hidden>
+    <div class="tg-head"><span class="g"></span><div class="days" data-heads></div></div>
+    <div class="tg-all" data-allrow><span class="g">all-day</span><div class="lanes" data-lanes></div></div>
+    <div class="tg-body" data-tbody><div class="tg-in" data-tin></div></div>
+  </section>
+  <nav class="tabs" role="tablist" aria-label="Calendar view">
+    <button role="tab" data-mode="day">Day</button>
+    <button role="tab" data-mode="week">Week</button>
+    <button role="tab" data-mode="month">Month</button>
+  </nav>
+  <div class="sheet-back" data-sheet-back hidden></div>
+  <article class="sheet" data-sheet hidden></article>
+</main>
+<script src="app.js"></script>
+</body>
+</html>
