@@ -20,7 +20,9 @@ BIND = os.environ.get('BIND', '127.0.0.1')
 TZ = os.environ.get('CALENDAR_TIMEZONE', 'UTC')
 ZoneInfo(TZ)  # fail explicitly on an invalid deployment timezone
 CORE = Path(os.environ['WIZARD_CORE_DIR']).resolve() if os.environ.get('WIZARD_CORE_DIR') else None
-HOSTS = set(filter(None, os.environ.get('WIZARD_TRUSTED_HOSTS', '').split(','))) or {f'127.0.0.1:{PORT}', f'localhost:{PORT}'}
+LOCAL_HOSTS = {f'127.0.0.1:{PORT}', f'localhost:{PORT}'} | set(filter(None, os.environ.get('WIZARD_LOCAL_HOSTS', '').split(',')))
+# Owner-facing hosts are added to, never replace, the local agent route (MCP over loopback / the app network).
+HOSTS = set(filter(None, os.environ.get('WIZARD_TRUSTED_HOSTS', '').split(','))) | LOCAL_HOSTS
 ORIGINS = set(filter(None, os.environ.get('WIZARD_TRUSTED_ORIGINS', '').split(','))) or {f'http://{h}' for h in HOSTS}
 LOCK = threading.RLock()
 MAX_BYTES = 4 * 1024 * 1024
