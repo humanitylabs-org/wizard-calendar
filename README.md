@@ -66,9 +66,14 @@ The server never seeds, resets, migrates another installation or invokes Google 
 ## Wizard package
 
 `wizard.md`, `runtipi/config.json`, portable `runtipi/docker-compose.yml`, `openapi.json`
-and `skill/SKILL.md` form the independently installable Wizard package. The inline Compose
-payload is the exact runtime source, not an external unpublished app image. Runtipi must
-create writable app-data owned by UID/GID 1000 and pass its exact trusted hosts/origins.
+and `skill/SKILL.md` form the independently installable Wizard package. `runtime.package: source`
+runs the pinned official multi-architecture Python image with `${APP_SOURCE_DIR}:/app:ro`;
+there is no custom image, build or embedded source payload. The App Manager must supply
+`APP_SOURCE_DIR` (wizard-app-manager#153); older App Managers cannot install this recipe.
+The managed service runs as root with all capabilities dropped so root-owned app-data
+binds remain writable, retaining read-only root/source and no-new-privileges. Pass its exact
+trusted hosts/origins. `python3 tools/package_runtime.py --check` verifies recipe generation.
+The Dockerfile and root `compose.yml` remain optional standalone development tools.
 Wizard must provide the shared core URL and attach the iframe via its shared app services.
 Private catalog admission is a platform/release-owner step, not a public listing.
 
