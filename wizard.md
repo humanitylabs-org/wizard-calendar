@@ -6,7 +6,7 @@ type: service
 category: app
 version: 0.1.0
 summary: Read-only calendar views. Starts empty; import a snapshot or configure your own external connector.
-license: LicenseRef-Proprietary
+license: MIT
 source: https://github.com/humanitylabs-org/wizard-calendar
 runtime:
   kind: runtipi
