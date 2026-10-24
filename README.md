@@ -19,13 +19,15 @@ curl --fail http://127.0.0.1:18787/api/events
 ```
 
 Open **http://127.0.0.1:18787/**. It must say “No calendar yet.” Both events and calendars
-must be empty. The helper runs the exact Runtipi inline source payload on a pinned public
-Python base image: no unpublished app image and no compiler/build toolchain are needed.
+must be empty. The helper runs the same source recipe on a pinned public Python base
+image: no unpublished app image and no compiler/build toolchain are needed. It copies
+runtime source into a content-addressed named volume mounted read-only at `/app`.
 It separately fetches the approved shared client, verifies its SHA256, and installs it in
-an app-specific core volume. It creates writable app-data owned by UID/GID 1000. Both
-volumes are named and work with Docker Desktop, Linux Docker or a VM-backed Colima daemon.
-No host source/data/keyring directories are mounted. The runtime is non-root, read-only,
-capability-dropped, with no-new-privileges. No provider connector is started.
+an app-specific core volume. It creates writable app-data owned by UID/GID 1000. These
+volumes work with Docker Desktop, Linux Docker or a VM-backed Colima daemon.
+No host source/data/keyring directories are mounted. The managed runtime retains the
+source recipe's root user with all capabilities dropped, read-only root/source and
+no-new-privileges. No provider connector is started.
 
 Custom instance: `python3 tools/run_portable.py start --project calendar-personal --port 18788`.
 For architecture rehearsal add `--platform linux/arm64` or `--platform linux/amd64`.
@@ -72,15 +74,17 @@ The service never seeds, resets, migrates another installation or calls Google o
 ## Wizard package / developer option
 
 `wizard.md`, `runtipi/config.json`, portable `runtipi/docker-compose.yml`, `openapi.json`
-and `skill/SKILL.md` form the independently installable Wizard package. The inline Compose
-payload is exact runtime source. Its base image is pinned by multiarchitecture index digest.
-Runtipi must create app-data owned by UID/GID 1000 and pass its exact trusted hosts/origins.
-Wizard provides the shared core URL and attaches the iframe via shared app services.
-Private catalog admission is the platform/release owner's step, not a public store listing.
-
-`app/Dockerfile` and `compose.yml` also support a conventional developer image build.
-Those are optional: the tested release/install path is the build-free portable package.
-No application image registry publication or custom image archive is claimed for this release.
+and `skill/SKILL.md` form the independently installable Wizard package. `runtime.package: source`
+runs the pinned official multi-architecture Python image with `${APP_SOURCE_DIR}:/app:ro`;
+there is no custom image, build or embedded source payload. The App Manager must supply
+`APP_SOURCE_DIR` (wizard-app-manager#153); older App Managers cannot install this recipe.
+The managed service runs as root with all capabilities dropped so root-owned app-data
+binds remain writable, retaining read-only root/source and no-new-privileges. Pass its exact
+trusted hosts/origins. `python3 tools/package_runtime.py --check` verifies recipe generation.
+The Dockerfile and root `compose.yml` remain optional standalone development tools.
+Wizard must provide the shared core URL and attach the iframe via its shared app services.
+Catalog admission is a separate platform/release-owner step.
+No application image registry publication or custom image archive is required.
 
 API: `GET /healthz`, `GET /api/events`, `GET /api/export`, `POST /api/import`,
 `POST /api/calendars/visibility`. MCP: `POST /mcp`, tool `calendar_events` (read-only).

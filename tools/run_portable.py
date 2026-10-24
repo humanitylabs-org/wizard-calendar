@@ -3,11 +3,14 @@
 Named data/core volumes also work when a VM Docker daemon cannot bind the host checkout.
 """
 import argparse
+import hashlib
+import io
 import json
 import os
 import re
 import subprocess
 import sys
+import tarfile
 import time
 import urllib.request
 from pathlib import Path
@@ -26,12 +29,17 @@ config=json.loads((root/'runtipi/docker-compose.yml').read_text())
 image=config['services']['wizard-calendar']['image']
 # Existing volume contents are retained; only the app-owned volume root gets its expected UID.
 volume=args.project+'_data'; core=args.project+'_core'
+archive=io.BytesIO()
+with tarfile.open(fileobj=archive,mode='w') as bundle:
+    for name in ['app/server.py','openapi.json']+sorted('web/'+p.name for p in (root/'web').iterdir() if p.is_file()):
+        bundle.add(root/name,arcname=name,recursive=False)
+source=args.project+'_source_'+hashlib.sha256(archive.getvalue()).hexdigest()[:16]
 origin=f'http://127.0.0.1:{args.port}'
-override={'services':{'wizard-calendar':{'ports':[f'127.0.0.1:{args.port}:8799'],'environment':{'WIZARD_CORE_DIR':'/core','WIZARD_TRUSTED_HOSTS':f'127.0.0.1:{args.port},localhost:{args.port}','WIZARD_TRUSTED_ORIGINS':f'{origin},http://localhost:{args.port}'},'volumes':[{'type':'volume','source':'calendar-data','target':'/data'},{'type':'volume','source':'calendar-core','target':'/core','read_only':True}]}},'volumes':{'calendar-data':{'name':volume,'external':True},'calendar-core':{'name':core,'external':True}}}
+override={'services':{'wizard-calendar':{'ports':[f'127.0.0.1:{args.port}:8799'],'environment':{'WIZARD_CORE_DIR':'/core','WIZARD_TRUSTED_HOSTS':f'127.0.0.1:{args.port},localhost:{args.port}','WIZARD_TRUSTED_ORIGINS':f'{origin},http://localhost:{args.port}'},'volumes':[{'type':'volume','source':'calendar-data','target':'/data'},{'type':'volume','source':'calendar-core','target':'/core','read_only':True},{'type':'volume','source':'calendar-source','target':'/app','read_only':True}]}},'volumes':{'calendar-data':{'name':volume,'external':True},'calendar-core':{'name':core,'external':True},'calendar-source':{'name':source,'external':True}}}
 if args.platform:override['services']['wizard-calendar']['platform']=args.platform
 path=state/(args.project+'.json')
 path.write_text(json.dumps(override,indent=2)+'\n')
-env=dict(os.environ,APP_DATA_DIR=str(state/'unused-bind-target'))
+env=dict(os.environ,APP_DATA_DIR=str(state/'unused-bind-target'),APP_SOURCE_DIR=str(root),APP_PORT=str(args.port))
 cmd=['docker','compose','-p',args.project,'-f',str(root/'runtipi/docker-compose.yml'),'-f',str(path)]
 if args.action=='start':
     subprocess.run([sys.executable,str(root/'tools/fetch_core.py')],check=True)
@@ -39,6 +47,10 @@ if args.action=='start':
     if args.platform:helper+=['--platform',args.platform]
     helper+=['-v',volume+':/data','-v',core+':/core',image,'python','-c',"import os,sys; from pathlib import Path; os.chown('/data',1000,1000); os.chmod('/data',0o750); p=Path('/core/app-client.tmp'); p.write_bytes(sys.stdin.buffer.read()); p.replace('/core/app-client.js')"]
     subprocess.run(helper,input=(state/'core/app-client.js').read_bytes(),check=True)
+    source_helper=['docker','run','--rm','-i','--user','0:0','--network','none']
+    if args.platform:source_helper+=['--platform',args.platform]
+    source_helper+=['-v',source+':/source',image,'python','-c',"import sys,tarfile; tarfile.open(fileobj=sys.stdin.buffer,mode='r|').extractall('/source',filter='data')"]
+    subprocess.run(source_helper,input=archive.getvalue(),check=True)
     subprocess.run(cmd+['up','-d','--no-build','--force-recreate'],env=env,check=True)
     for attempt in range(45):
         try:

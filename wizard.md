@@ -9,6 +9,7 @@ summary: Read-only calendar views. Starts empty; import a snapshot or configure 
 license: MIT
 source: https://github.com/humanitylabs-org/wizard-calendar
 runtime:
+  package: source
   kind: runtipi
   config: runtipi/config.json
   compose: runtipi/docker-compose.yml
