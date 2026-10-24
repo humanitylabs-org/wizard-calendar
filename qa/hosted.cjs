@@ -5,7 +5,7 @@ const assert=require('node:assert/strict'), fs=require('node:fs'), path=require(
 const base=process.env.CALENDAR_URL||'http://127.0.0.1:18787';
 const out=process.env.QA_OUT||path.join(__dirname,'../evidence');
 const revision='9a7bcc89f15cb733462d12e7c84bcade47cebc27';
-const shared={'app-services.js':'529d8c05d1ef2aac3a8db5fd92a861f4ed769604c44ef325a8521b1cb8510324','appearance-host.js':'5b95250298e2604b5eb1954be2f1ef7e9364e6b6ac24e9c7f31f71a9c4645390'};
+const shared={'skins.js':'57cfe09a435b67fdee38a33b060ed3038ef858b1037df11cef38a96c9c58078c','app-services.js':'529d8c05d1ef2aac3a8db5fd92a861f4ed769604c44ef325a8521b1cb8510324','appearance-host.js':'5b95250298e2604b5eb1954be2f1ef7e9364e6b6ac24e9c7f31f71a9c4645390'};
 (async()=>{
  const resources={};
  for(const [name,digest] of Object.entries(shared)) {
@@ -17,7 +17,7 @@ const shared={'app-services.js':'529d8c05d1ef2aac3a8db5fd92a861f4ed769604c44ef32
  try {
   const context=await browser.newContext({viewport:{width:1280,height:900}});
   const page=await context.newPage(); page.on('pageerror',e=>errors.push(String(e))); page.on('dialog',d=>d.accept());
-  await page.route(base+'/__qa-host',r=>r.fulfill({contentType:'text/html',body:`<!doctype html><html data-skin="nebula" style="color-scheme:dark;--bg:#10121c;--ink:#f3efff;--violet-2:#a899ff"><head><script>window.WizCore={apps:()=>({APPS:[{id:'wizard-calendar',url:'/wizard-calendar/',kind:'app'}]})}</script><script src="/__qa-core/app-services.js"></script><script src="/__qa-core/appearance-host.js"></script></head><body><div class="device"><div class="win" style="width:1000px;height:800px;background:#10121c"><iframe style="width:100%;height:100%;border:0"></iframe></div></div><script>const f=document.querySelector('iframe');f.src='/wizard-calendar/';window.detach=WizAppServices.attach(f,{appId:'wizard-calendar',path:'/wizard-calendar/'});</script></body></html>`}));
+  await page.route(base+'/__qa-host',r=>r.fulfill({contentType:'text/html',body:`<!doctype html><html data-skin="nebula" style="color-scheme:dark;--bg:#10121c;--ink:#f3efff;--violet-2:#a899ff"><head><script src="/__qa-core/skins.js"></script><script>window.WizCore={apps:()=>({APPS:[{id:'wizard-calendar',url:'/wizard-calendar/',kind:'app'}]})}</script><script src="/__qa-core/app-services.js"></script><script src="/__qa-core/appearance-host.js"></script></head><body><div class="device"><div class="win" style="width:1000px;height:800px;background:var(--bg)"><iframe style="width:100%;height:100%;border:0"></iframe></div></div><script>const f=document.querySelector('iframe');f.src='/wizard-calendar/';window.detach=WizAppServices.attach(f,{appId:'wizard-calendar',path:'/wizard-calendar/'});</script></body></html>`}));
   await page.route(base+'/__qa-core/*',r=>r.fulfill({contentType:'text/javascript',body:resources[r.request().url().split('/').pop()]}));
   await page.goto(base+'/__qa-host');
   const frame=()=>page.frames().find(f=>f.url()===base+'/wizard-calendar/');
@@ -31,12 +31,13 @@ const shared={'app-services.js':'529d8c05d1ef2aac3a8db5fd92a861f4ed769604c44ef32
   checks.push('host Back closes Settings; atRoot reported without iframe navigation');
   for(const skin of ['nebula','grove']) {
     for(const scheme of ['light','dark']) {
-      await page.evaluate(({skin,scheme})=>{const root=document.documentElement;root.dataset.skin=skin;root.style.colorScheme=scheme;root.style.setProperty('--bg',scheme==='light'?'#faf8f2':'#15121f');root.style.setProperty('--ink',scheme==='light'?'#24212b':'#f5efff');WizAppearance.sync();},{skin,scheme});
+      await page.evaluate(({skin,scheme})=>{const root=document.documentElement;WosSkin.set(skin);root.style.colorScheme=scheme;WizAppearance.sync();},{skin,scheme});
       await frame().waitForFunction(({skin,scheme})=>WizardApp.theme.get()?.skin===skin&&WizardApp.theme.get()?.colorScheme===scheme,{skin,scheme});
       assert.equal(await frame().evaluate(()=>getComputedStyle(document.body).backgroundColor),'rgba(0, 0, 0, 0)');
+      await page.screenshot({path:path.join(out,`calendar-sync-hosted-${skin}-${scheme}.png`),fullPage:true});
     }
   }
-  checks.push('Nebula/Grove identifiers × synthetic light/dark tokens applied live without reload, transparent hosted canvas');
+  checks.push('real pinned Nebula/Grove palettes × light/dark color scheme applied live without reload, transparent hosted canvas');
   await page.evaluate(()=>{document.querySelector('.device').classList.add('immersive');document.querySelector('.win').classList.add('full')});
   await frame().waitForFunction(()=>WizardApp.theme.get()?.presentation==='immersive');
   checks.push('immersive presentation propagated by actual shared Appearance host');
