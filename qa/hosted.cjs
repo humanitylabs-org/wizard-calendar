@@ -29,14 +29,14 @@ const shared={'app-services.js':'529d8c05d1ef2aac3a8db5fd92a861f4ed769604c44ef32
   await frame().waitForFunction(()=>document.querySelector('[data-sheet]').hidden);
   assert.equal(await page.evaluate(()=>WizAppServices.back(document.querySelector('iframe'))),'atRoot');
   checks.push('host Back closes Settings; atRoot reported without iframe navigation');
-  for(const skin of ['nebula','solstice','paper','verdant','noir','rose']) {
+  for(const skin of ['nebula','grove']) {
     for(const scheme of ['light','dark']) {
       await page.evaluate(({skin,scheme})=>{const root=document.documentElement;root.dataset.skin=skin;root.style.colorScheme=scheme;root.style.setProperty('--bg',scheme==='light'?'#faf8f2':'#15121f');root.style.setProperty('--ink',scheme==='light'?'#24212b':'#f5efff');WizAppearance.sync();},{skin,scheme});
       await frame().waitForFunction(({skin,scheme})=>WizardApp.theme.get()?.skin===skin&&WizardApp.theme.get()?.colorScheme===scheme,{skin,scheme});
       assert.equal(await frame().evaluate(()=>getComputedStyle(document.body).backgroundColor),'rgba(0, 0, 0, 0)');
     }
   }
-  checks.push('six skin identifiers × light/dark applied live without reload, transparent hosted canvas');
+  checks.push('Nebula/Grove identifiers × synthetic light/dark tokens applied live without reload, transparent hosted canvas');
   await page.evaluate(()=>{document.querySelector('.device').classList.add('immersive');document.querySelector('.win').classList.add('full')});
   await frame().waitForFunction(()=>WizardApp.theme.get()?.presentation==='immersive');
   checks.push('immersive presentation propagated by actual shared Appearance host');

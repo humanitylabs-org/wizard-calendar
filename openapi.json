@@ -87,7 +87,55 @@
     },
     "/mcp": {
       "post": {
-        "summary": "Stateless JSON-RPC MCP initialize, tools/list and calendar_events",
+        "summary": "Stateless JSON-RPC MCP: calendar_events and sync_status read-only tools",
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "403": {
+            "description": "Untrusted Host or Origin"
+          }
+        }
+      }
+    },
+    "/api/sync": {
+      "get": {
+        "summary": "Read grant-scoped Connected accounts sync state",
+        "responses": {
+          "200": {
+            "description": "Sync state, last_success, last_error, accounts, calendar_errors, setup_url, syncing and interval_minutes"
+          }
+        }
+      },
+      "post": {
+        "summary": "Request asynchronous sync now; poll GET until syncing is false",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Queued or coalesced with pending refresh"
+          },
+          "403": {
+            "description": "Untrusted Host or Origin"
+          }
+        }
+      }
+    },
+    "/api/health": {
+      "get": {
+        "summary": "Service identity and setup status",
         "responses": {
           "200": {
             "description": "Success"

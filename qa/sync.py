@@ -98,6 +98,24 @@ class SyncTests(unittest.TestCase):
         self.assertEqual(self.sync('truncated')['state'], 'error')
         self.assertEqual(before['events'], m.read()['events'])
 
+    def test_hidden_duplicate_uses_visible_copy(self):
+        self.grant(); self.sync(); doc = m.read()
+        shared = next(e for e in doc['events'] if e['title'] == 'Shared meeting')
+        doc['hidden'] = [shared['cal']]
+        with m.LOCK: m.save(doc)
+        visible = m.view()['events']
+        self.assertTrue(any(e['title'] == 'Shared meeting' for e in visible))
+        self.assertTrue(all(e['cal'] not in doc['hidden'] for e in visible))
+
+    def test_grant_rotation_and_revocation(self):
+        self.grant(); self.assertEqual(self.sync()['state'], 'ok')
+        self.grant('rotated-wrong'); self.assertEqual(self.sync()['state'], 'needs_permission')
+        Path(os.environ['WIZARD_GRANTS_FILE']).unlink()
+        calls = len(fake.CALLS)
+        self.assertEqual(self.sync()['state'], 'not_linked')
+        self.assertEqual(len(fake.CALLS), calls)
+        self.assertEqual(len(m.read()['events']), 3)
+
     def test_offset_dedupe(self):
         row = {'id': 'a', 'cal': 'a', 'title': ' Meeting ', 'start': '2026-10-15T10:00:00Z', 'end': '2026-10-15T11:00:00Z', 'allDay': False}
         other = dict(row, id='b', cal='b', title='meeting', start='2026-10-15T12:00:00+02:00', end='2026-10-15T13:00:00+02:00')

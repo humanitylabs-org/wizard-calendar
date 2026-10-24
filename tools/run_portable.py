@@ -45,7 +45,7 @@ if args.action=='start':
     subprocess.run([sys.executable,str(root/'tools/fetch_core.py')],check=True)
     helper=['docker','run','--rm','-i','--user','0:0','--network','none']
     if args.platform:helper+=['--platform',args.platform]
-    helper+=['-v',volume+':/data','-v',core+':/core',image,'python','-c',"import os,sys; from pathlib import Path; os.chown('/data',1000,1000); os.chmod('/data',0o750); p=Path('/core/app-client.tmp'); p.write_bytes(sys.stdin.buffer.read()); p.replace('/core/app-client.js')"]
+    helper+=['-v',volume+':/data','-v',core+':/core',image,'python','-c',"import os,sys; from pathlib import Path; os.chown('/data',0,0); os.chmod('/data',0o750); p=Path('/core/app-client.tmp'); p.write_bytes(sys.stdin.buffer.read()); p.replace('/core/app-client.js')"]
     subprocess.run(helper,input=(state/'core/app-client.js').read_bytes(),check=True)
     source_helper=['docker','run','--rm','-i','--user','0:0','--network','none']
     if args.platform:source_helper+=['--platform',args.platform]

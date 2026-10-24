@@ -174,9 +174,10 @@ def provider_call(link, path, body=None):
         # Only expose stable codes, never a provider body (which could contain secrets).
         try: code = json.loads(exc.read(4096)).get('error')
         except (ValueError, AttributeError): code = None
+        finally: exc.close()
         allowed = {'reauth_required', 'not_bound', 'google_configuration_required', 'grant_required', 'grant_denied', 'permission_denied'}
         raise ProviderError(code if code in allowed else 'provider_http_' + str(exc.code), exc.code) from None
-    except urllib.error.URLError: raise ProviderError('provider_unreachable') from None
+    except (urllib.error.URLError, TimeoutError, ConnectionError): raise ProviderError('provider_unreachable') from None
 
 
 def sync_status():
@@ -207,7 +208,7 @@ def sync_once():
     try:
         link = provider_link()
         if not link:
-            set_state(state='not_linked', accounts=[], last_error=None, calendar_errors={})
+            set_state(state='not_linked', accounts=[], last_error=None, calendar_errors={}, syncing=False)
             return sync_status()
         status = provider_call(link, 'status')
         if type(status.get('client_configured')) is not bool or not isinstance(status.get('accounts'), list): raise ValueError('invalid provider status')
@@ -220,12 +221,12 @@ def sync_once():
         if not isinstance(setup, str) or not (setup.startswith('/') and not setup.startswith('//') or urlsplit(setup).scheme in ('http', 'https') and urlsplit(setup).hostname and not urlsplit(setup).username and not urlsplit(setup).password): raise ValueError('invalid setup_url')
         set_state(accounts=accounts, setup_url=setup, last_error=None, calendar_errors={})
         if not status['client_configured']:
-            set_state(state='needs_google_app'); return sync_status()
+            set_state(state='needs_google_app', syncing=False); return sync_status()
         if not accounts:
-            set_state(state='needs_account'); return sync_status()
+            set_state(state='needs_account', syncing=False); return sync_status()
         allowed = {a['account'] for a in accounts if a['calendar_allowed'] and a['status'] not in ('reauth_required', 'not_bound')}
         if not allowed:
-            set_state(state='needs_permission'); return sync_status()
+            set_state(state='needs_permission', syncing=False); return sync_status()
         listing = provider_call(link, 'calendars', {})
         if not isinstance(listing.get('calendars'), list) or len(listing['calendars']) > 100: raise ValueError('invalid provider calendars')
         previous = read()
@@ -262,6 +263,14 @@ def sync_once():
                 if exc.status == 403: raise
                 errors[cid] = exc.code
                 cache[cid] = raw_cache.get(cid, [e for e in previous['events'] if e['cal'] == cid])
+        # An account needing reauthorization may disappear from the provider listing.
+        # Keep its last good calendars rather than treating permission failure as deletion.
+        listed = {c['id'] for c in cals}
+        for cal in previous['calendars']:
+            if cal.get('account') and cal['account'] not in allowed and cal['id'] not in listed:
+                cals.append(cal)
+                errors[cal['id']] = 'reauth_required'
+                cache[cal['id']] = raw_cache.get(cal['id'], [e for e in previous['events'] if e['cal'] == cal['id']])
         # All provider payloads must validate before any write. Retain raw per-calendar
         # rows so a cross-calendar duplicate remains available if its other copy vanishes.
         all_events = [e for rows in cache.values() for e in rows]
@@ -313,7 +322,8 @@ def view():
     for c in doc['calendars']:
         c.update(hidden=c['id'] in hidden, ok=c['id'] not in errors,
                  error=errors.get(c['id']), count=sum(e['cal'] == c['id'] for e in doc['events']))
-    doc['events'] = [e for e in doc['events'] if e['cal'] not in hidden]
+    visible = [e for rows in doc.get('calendarEvents', {}).values() for e in rows] if doc.get('source') == 'connected_accounts' else doc['events']
+    doc['events'] = dedupe([e for e in visible if e['cal'] not in hidden]) if doc.get('source') == 'connected_accounts' else [e for e in visible if e['cal'] not in hidden]
     doc.pop('calendarEvents', None)
     status = sync_status()
     return dict(doc, display_timezone=DISPLAY_TZ, sync=status,

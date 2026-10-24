@@ -2,7 +2,8 @@
 (() => {
   const $ = (s) => document.querySelector(s);
   const API = new URL('api/events', location.href).pathname;
-  let TZ = 'UTC';
+  const browserTZ = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  let TZ = browserTZ;
   let doc = null, byDay = new Map(), view = null, sel = null, sheetOpen = false;
   const MODES = ['day', 'week', 'month'], HOUR = 48;
   let mode = MODES.includes(localStorage.getItem('wc.mode')) ? localStorage.getItem('wc.mode') : 'week';
@@ -93,7 +94,7 @@
     const when = doc.syncedAt ? fmtSynced(doc.syncedAt) : 'never';
     const cals = (doc.calendars || []).filter((c) => !c.hidden).map((c) => `${esc(c.name)}`).join(' · ');
     const err = doc.syncError || (doc.errors || []).join('; ');
-    $('[data-foot]').innerHTML = `Calendar snapshot · ${cals}<br>Imported ${when} · <button class="lnk" data-cals>Settings</button>${err ? `<br><span class="err">Sync issue: ${esc(err)}</span>` : ''}`;
+    $('[data-foot]').innerHTML = `${doc.source === 'connected_accounts' ? 'Connected accounts' : 'Manual snapshot'} · ${cals}<br>Updated ${when} · <button class="lnk" data-cals>Settings</button>${err ? `<br><span class="err">Sync issue: ${esc(err)}</span>` : ''}`;
   }
 
   // ---- Day / Week time grid ----
@@ -225,11 +226,13 @@
     if (mode === 'month') { renderGrid(); renderAgenda(); } else renderTime();
   }
 
-  // Calendars take the skin's palette (CSS --k0…, --k-holiday), not Google's colours. Stable by calendar order.
+  // Keep Google/owner colors. Calendars without one use the live skin's palette.
   function skinColours() {
     const slot = new Map(); let n = 0;
-    for (const c of doc.calendars || []) slot.set(c.id, /#holiday@/.test(c.id) ? 'var(--k-holiday)' : `var(--k${n++ % 5})`);
-    for (const c of doc.calendars || []) c.color = slot.get(c.id);
+    for (const c of doc.calendars || []) {
+      slot.set(c.id, c.color || (/#holiday@/.test(c.id) ? 'var(--k-holiday)' : `var(--k${n++ % 5})`));
+      c.color = slot.get(c.id);
+    }
     for (const e of doc.events || []) if (slot.has(e.cal)) e.color = slot.get(e.cal);
   }
   function renderTodayBtn() { $('[data-today-num]').textContent = +todayKey().slice(8); }
@@ -239,7 +242,25 @@
     else renderTime();
   }
 
-  function render() { skinColours(); index(); renderTodayBtn(); renderView(); renderFoot(); $('[data-status]').textContent = doc.calendars?.length ? `${doc.events.length} visible events · ${TZ}` : 'No calendar yet. Open Settings to import a fixture or your own snapshot.'; }
+  const setupMessages = {
+    not_linked: 'Link Calendar to Connected accounts in Wizard permissions, then set up Google there.',
+    needs_google_app: 'Add your own Google OAuth app once in Connected accounts. Calendar never receives your Google credentials.',
+    needs_account: 'Your Google app is ready. Sign in to your Google account in Connected accounts.',
+    needs_permission: 'Allow read-only calendar access or reconnect the account in Connected accounts.',
+    error: 'Sync could not finish. Open Settings to review the error and try again.',
+    ok: 'No calendars are available yet. Check your account in Connected accounts.'
+  };
+  const setupLink = () => `<a class="btn wz-button" data-connect href="${esc(doc?.sync?.setup_url || '/wizard-connectors/')}" target="_top">Open Connected accounts</a>`;
+  function render() {
+    skinColours(); index(); renderTodayBtn(); applyMode(); renderView(); renderFoot();
+    const empty = !doc.calendars?.length;
+    $('[data-setup]').hidden = !empty;
+    if (empty) {
+      $('[data-scroll]').hidden = true; $('[data-time]').hidden = true;
+      $('[data-setup]').innerHTML = `<h1>Connect your Google calendar</h1><p>${esc(setupMessages[doc.sync?.state] || setupMessages.not_linked)}</p><p>One-time setup: bring your own Google OAuth app, then connect your accounts. Events sync automatically and stay read-only.</p>${setupLink()}<button class="lnk" data-cals>Settings · import a snapshot instead</button>`;
+    }
+    $('[data-status]').textContent = empty ? 'No calendar connected' : `${doc.events.length} visible events · ${TZ}`;
+  }
 
   // Domain overlays use the shared Back stack, never app-owned root guards.
   let sheetBack = null;
@@ -277,10 +298,10 @@
   }
   WizardApp.ready({ name: 'Calendar', version: '0.1.0' });
 
-  // Snapshot settings: provider authorization belongs to the operator, not this UI.
+  // Authorization and credentials belong exclusively to Connected accounts.
   function openCals() {
-    const list = (doc?.calendars || []).map(c => `<button class="cal${c.hidden ? ' off' : ''}" data-vis="${esc(c.id)}" role="switch" aria-checked="${!c.hidden}"><i style="background:${esc(c.color)}"></i><span class="nm">${esc(c.name)}<small>${c.hidden ? 'Hidden' : `${c.count} events`}</small></span><span class="sw"></span></button>`).join('');
-    $('[data-sheet]').innerHTML = `<div class="sh-top"><span class="grab"></span><button class="x" data-close aria-label="Close">✕</button></div><h2>Settings</h2><p class="note">Read-only calendar snapshot. No account is connected by this app. Provider setup: OSCAR-SETUP.md in the release.</p><div class="sync"><span>${doc?.syncedAt ? `Imported ${esc(fmtSynced(doc.syncedAt))}` : 'No calendar imported'}</span><button class="btn" data-sync>Reload</button></div><div class="sec">Calendars</div>${list || '<p class="note">Start with the included synthetic fixture or ask your agent to import your own calendar.</p>'}<div class="sec">Import snapshot JSON</div><p class="note">Import replaces the entire snapshot, not your Google calendar. Export a backup first if needed. Only import files you intend to show here.</p><input type="file" data-import accept="application/json,.json" aria-label="Import snapshot JSON"><a class="btn" href="api/export" download="calendar-snapshot.json">Export snapshot</a><div class="msg" data-c-msg role="status"></div>`;
+    const list = (doc?.calendars || []).map(c => `<button class="cal${c.ok ? '' : ' bad'}${c.hidden ? ' off' : ''}" data-vis="${esc(c.id)}" role="switch" aria-checked="${!c.hidden}"><i style="background:${esc(c.color)}"></i><span class="nm">${esc(c.name)}<small>${c.error ? esc(c.error) : c.hidden ? 'Hidden' : `${c.count} events`}</small></span><span class="sw"></span></button>`).join('');
+    $('[data-sheet]').innerHTML = `<div class="sh-top"><span class="grab"></span><button class="x" data-close aria-label="Close">✕</button></div><h2>Settings</h2><section data-sync-section><div class="sec">Connected accounts</div>${(doc?.sync?.accounts || []).map(a => `<p class="note">${esc(a.email)} · ${a.calendar_allowed ? esc(a.status) : 'Calendar permission needed'}</p>`).join('') || '<p class="note">No linked accounts yet.</p>'}<p class="note">${esc(doc?.sync?.state === 'ok' ? 'Read-only sync is connected.' : setupMessages[doc?.sync?.state] || 'Read-only sync is connected.')}</p>${setupLink()}<div class="sync"><span>${doc?.sync?.last_success ? `Last sync ${esc(fmtSynced(doc.sync.last_success))}` : 'Not synced yet'} · every ${esc(doc?.sync?.interval_minutes || 10)} min</span><button class="btn wz-button" data-sync>Sync now</button></div>${doc?.sync?.last_error ? `<p class="msg err" role="alert">${esc(doc.sync.last_error)}</p>` : ''}<p class="note">Snapshot source: ${doc?.source === 'connected_accounts' ? 'Connected accounts' : doc?.source === 'manual_import' ? 'Manual import' : 'Empty'}</p></section><div class="sec">Calendars</div>${list || '<p class="note">Connect Google above, or import a manual snapshot below.</p>'}<div class="sec">Import snapshot JSON</div><p class="note">Manual import replaces the local snapshot, not your Google calendar. Automatic sync replaces it again when linked. Export a backup first if needed. Only import files you intend to show here.</p><input type="file" data-import accept="application/json,.json" aria-label="Import snapshot JSON"><a class="btn" href="api/export" download="calendar-snapshot.json">Export snapshot</a><div class="msg" data-c-msg role="status"></div>`;
     showSheet();
     if (!sheetOpen) { sheetOpen = true; sheetBack = WizardApp.back.push(() => { closeSheet(); return true; }); }
   }
@@ -380,9 +401,20 @@
   }, { passive: true });
 
   async function syncNow(btn) {
-    btn.disabled = true; btn.textContent = 'Reloading…';
-    await load(true);
-    if (sheetOpen) openCals();
+    btn.disabled = true; btn.textContent = 'Syncing…';
+    try {
+      await post('api/sync', {});
+      for (let i = 0; i < 120; i++) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        const response = await fetch(new URL('api/sync', location.href).pathname, {cache:'no-store'});
+        if (!response.ok) throw new Error('Unable to read sync status.');
+        if (!(await response.json()).syncing) break;
+      }
+      await load(false);
+      if (sheetOpen) openCals();
+    } catch (e) { say(e.message); }
+    finally { btn.disabled = false; btn.textContent = 'Sync now'; }
+
   }
 
   async function load(refresh) {
@@ -390,15 +422,15 @@
       const r = await fetch(API + (refresh ? '?refresh=1' : ''), { cache: 'no-store' });
       if (!r.ok) throw new Error(`Load failed (${r.status})`);
       const d = await r.json();
-      if (d.timezone) TZ = d.timezone;
+      TZ = d.display_timezone || browserTZ;
       doc = d;
       if (!sel) sel = todayKey();
       if (!view) view = [+sel.slice(0, 4), +sel.slice(5, 7) - 1];
       render();
       if (refresh && d.syncing) { await new Promise((ok) => setTimeout(ok, 2500)); return load(false); }
     } catch (err) {
-      $('[data-status]').textContent = 'Unable to load calendar. Open Settings and Reload to retry.';
-      $('[data-foot]').textContent = 'Unable to load calendar. Open Settings and Reload to retry.';
+      $('[data-status]').textContent = 'Unable to load calendar. Open Settings and Sync now to retry.';
+      $('[data-foot]').textContent = 'Unable to load calendar. Open Settings and Sync now to retry.';
     }
   }
 

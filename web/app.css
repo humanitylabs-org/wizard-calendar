@@ -6,6 +6,12 @@
 html[data-wz-hosted] body { background: var(--wz-canvas); }
 @media (prefers-color-scheme: light) { :root:not([data-wz-hosted]) { --bg: #faf9fd; --ink: #211c30; --ink-2: #494252; --ink-3: #665e73; --line: #d9d3e3; --line-2: #d9d3e3; --glass: #f0ecf6; --glass-2: #e8e1f0; color-scheme: light; } }
 .status { flex: 0 0 auto; margin: 4px 18px 8px; font-size: 12px; color: var(--ink-2); }
+.setup { margin: auto; width: min(540px, calc(100% - 32px)); padding: 24px; border: 1px solid var(--wz-border, var(--line)); border-radius: 18px; background: var(--wz-surface, var(--glass)); color: var(--wz-text, var(--ink)); overflow: auto; }
+.setup h1 { margin: 0 0 16px; font-size: 24px; line-height: 1.2; }
+.setup p { color: var(--wz-text-secondary, var(--ink-2)); }
+.setup .btn { display: inline-block; margin: 8px 0 16px; text-decoration: none; }
+.setup .lnk { display: block; text-align: left; }
+[hidden] { display: none !important; }
 :root { --sheet: color-mix(in srgb, var(--violet) 9%, var(--bg)); --chrome: color-mix(in srgb, var(--bg) 94%, transparent);
   --k0: var(--violet); --k1: var(--cyan); --k2: var(--pink); --k3: var(--amber); --k4: var(--red); --k-holiday: var(--green); }
 /* Hosted in a Wizard shell: sit on the shell's window glass; ink and hairlines follow the shell. */
