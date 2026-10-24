@@ -42,4 +42,4 @@ Empty by default. No provider credentials or account configuration are included.
 API and MCP read a local snapshot; provider authorization happens outside this app.
 See OSCAR-SETUP.md for the explicit Google/gog adapter and snapshot contract.
 The Wizard gateway must serve its approved shared app-client.js resource. A standalone
-install uses tools/fetch_core.py and compose.yml. Not a public store listing.
+install uses tools/run_portable.py without an app image build. Not a public store listing.

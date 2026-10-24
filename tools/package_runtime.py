@@ -14,7 +14,8 @@ compose = {'services': {'wizard-calendar': {
     'environment': {'BIND': '0.0.0.0', 'PORT': '8799', 'DATA_DIR': '/data',
         'PYTHONDONTWRITEBYTECODE': '1', 'CALENDAR_TIMEZONE': '${CALENDAR_TIMEZONE:-UTC}',
         'WIZARD_TRUSTED_HOSTS': '${WIZARD_TRUSTED_HOSTS:-}',
-        'WIZARD_TRUSTED_ORIGINS': '${WIZARD_TRUSTED_ORIGINS:-}'},
+        'WIZARD_TRUSTED_ORIGINS': '${WIZARD_TRUSTED_ORIGINS:-}',
+        'WIZARD_LOCAL_HOSTS': '127.0.0.1:${APP_PORT},localhost:${APP_PORT},wizard-calendar:8799'},
     'volumes': ['${APP_SOURCE_DIR}:/app:ro', '${APP_DATA_DIR}/data:/data'],
     'command': ['python', 'app/server.py'],
     'x-runtipi': {'is_main': True, 'internal_port': 8799}

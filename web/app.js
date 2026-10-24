@@ -397,7 +397,8 @@
       render();
       if (refresh && d.syncing) { await new Promise((ok) => setTimeout(ok, 2500)); return load(false); }
     } catch (err) {
-      $('[data-foot]').innerHTML = `<span class="err">Couldn't load the calendar. Pull again in a moment.</span>`;
+      $('[data-status]').textContent = 'Unable to load calendar. Open Settings and Reload to retry.';
+      $('[data-foot]').textContent = 'Unable to load calendar. Open Settings and Reload to retry.';
     }
   }
 

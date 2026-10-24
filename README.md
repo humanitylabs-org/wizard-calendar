@@ -3,31 +3,38 @@
 Day, Week and Month views of a read-only calendar snapshot. **Fresh installs are empty.**
 No accounts, events, contacts, tokens, keyrings or live connector config ship in this app.
 The sample under `fixtures/` is synthetic and is never imported automatically.
-The provider connector is intentionally operator-managed; see [OSCAR-SETUP.md](OSCAR-SETUP.md).
+Provider setup is operator-managed: see [OSCAR-SETUP.md](OSCAR-SETUP.md).
 
-## Install independently (Docker Compose)
+## Install independently — no app image build
 
-Prerequisites: Docker with Compose v2, Python 3.10+, network access for the Python base
-image and pinned shared WizardApp client. No other running apps or Google account needed.
-Clone this private repository at the release tag using your own GitHub access. Then:
+Prerequisites: Docker with Compose v2, Python 3.10+, network access for the pinned Python
+base image and shared WizardApp client. No other running apps or Google account needed.
+Extract the source release or clone this private repository at its exact test-release tag.
+Then:
 
 ```sh
-python3 tools/fetch_core.py
-docker compose -p calendar-test up -d --build
+python3 tools/run_portable.py start
 curl --fail http://127.0.0.1:18787/healthz
 curl --fail http://127.0.0.1:18787/api/events
 ```
 
 Open **http://127.0.0.1:18787/**. It must say “No calendar yet.” Both events and calendars
-must be empty. The standalone server routes the separately downloaded, digest-verified
-shared resource at `/wizard-os-home/core/app-client.js`; it is not an app-local replacement.
-No public port is exposed. Host and Origin are exact allowlists, not caller authentication.
-This single-owner local test server must not be exposed directly to a LAN or Internet.
+must be empty. The helper runs the same source recipe on a pinned public Python base
+image: no unpublished app image and no compiler/build toolchain are needed. It copies
+runtime source into a content-addressed named volume mounted read-only at `/app`.
+It separately fetches the approved shared client, verifies its SHA256, and installs it in
+an app-specific core volume. It creates writable app-data owned by UID/GID 1000. These
+volumes work with Docker Desktop, Linux Docker or a VM-backed Colima daemon.
+No host source/data/keyring directories are mounted. The managed runtime retains the
+source recipe's root user with all capabilities dropped, read-only root/source and
+no-new-privileges. No provider connector is started.
 
-If changing `CALENDAR_PORT`, also set `WIZARD_TRUSTED_HOSTS` and
-`WIZARD_TRUSTED_ORIGINS` to match (for example `127.0.0.1:18788,localhost:18788` and
-`http://127.0.0.1:18788,http://localhost:18788`). Add the exact authenticated gateway
-host/origin when installed behind Wizard. Never use wildcard trust.
+Custom instance: `python3 tools/run_portable.py start --project calendar-personal --port 18788`.
+For architecture rehearsal add `--platform linux/arm64` or `--platform linux/amd64`.
+Use the same project name for restart, updates and removal; it identifies the retained data.
+The helper binds loopback only and sets exact matching Host and Origin allowlists. These
+are not caller authentication: never expose this single-owner service directly to a LAN
+or Internet. Remote Wizard access must go through its authenticated gateway.
 
 ## Fixture/import proof
 
@@ -42,28 +49,29 @@ replacement. Navigate to 15 October 2026; the timed planning session and all-day
 must appear. Tap either for details; Back closes details and leaves the app open. Switch
 Day/Week/Month, hide/show the fixture calendar in Settings, then export the snapshot.
 
-Restore a genuinely empty test instance by importing `fixtures/empty.json` with the same
-command or file picker. This replaces imported data; only do it on the disposable test instance.
-Never clear someone's actual calendar snapshot without permission.
+Restore an empty **test** instance by importing `fixtures/empty.json` using the same command
+or file picker. This replaces imported data, not provider events. Never clear an actual user
+snapshot without permission. The source fixture is not loaded by the server on startup.
 
 ## Update, backup, remove
 
 ```sh
 curl --fail http://127.0.0.1:18787/api/export -o calendar-backup.json
-# After checking out a newer approved release:
-python3 tools/fetch_core.py
-docker compose -p calendar-test up -d --build --force-recreate
+# After checking out/extracting a newer approved source release:
+python3 tools/run_portable.py start
 curl --fail http://127.0.0.1:18787/api/export
-# Stop/remove the service but retain the named data volume:
-docker compose -p calendar-test down
+# Stop/remove service but keep imported data:
+python3 tools/run_portable.py stop
+# Reinstall; the previous snapshot remains:
+python3 tools/run_portable.py start
 ```
 
-Keep the same Compose project name for updates and reinstallation. `down -v` destroys the
-snapshot; do not use it for upgrades. Backups contain private calendar information.
-Importing a backup preserves events; visibility preferences live in the retained data volume.
-The server never seeds, resets, migrates another installation or invokes Google on startup.
+The helper never deletes its named data volume (`calendar-test_data` by default). Do not
+manually delete it on update. Backups contain private calendar information; store privately.
+Importing a backup restores events; visibility preferences persist in the data volume.
+The service never seeds, resets, migrates another installation or calls Google on startup.
 
-## Wizard package
+## Wizard package / developer option
 
 `wizard.md`, `runtipi/config.json`, portable `runtipi/docker-compose.yml`, `openapi.json`
 and `skill/SKILL.md` form the independently installable Wizard package. `runtime.package: source`
@@ -75,15 +83,21 @@ binds remain writable, retaining read-only root/source and no-new-privileges. Pa
 trusted hosts/origins. `python3 tools/package_runtime.py --check` verifies recipe generation.
 The Dockerfile and root `compose.yml` remain optional standalone development tools.
 Wizard must provide the shared core URL and attach the iframe via its shared app services.
-Private catalog admission is a platform/release-owner step, not a public listing.
+Catalog admission is a separate platform/release-owner step.
+No application image registry publication or custom image archive is required.
 
 API: `GET /healthz`, `GET /api/events`, `GET /api/export`, `POST /api/import`,
 `POST /api/calendars/visibility`. MCP: `POST /mcp`, tool `calendar_events` (read-only).
-The service also accepts the same routes beneath `/wizard-calendar/`.
+The same routes work beneath `/wizard-calendar/`. See OSCAR-SETUP.md for full input limits.
 
-## QA
+## QA and evidence boundaries
 
 `python3 qa/api.py --url http://127.0.0.1:18787` is destructive **test-data-only QA**.
-Run only against a new disposable volume. `qa/browser.cjs` exercises UI import, views and Back
-with the real separately fetched shared client. See the private release receipt for execution
-host, immutable commit, image identities, architecture evidence and remaining limitations.
+Run only against a new disposable volume. `qa/browser.cjs` tests real Chrome, UI import,
+views and Back with the separately fetched shared client. `qa/hosted.cjs` uses the real
+pinned shared services/Appearance implementations in a labelled test registry/iframe harness.
+It is not the full production shell, native iPhone/Android or live Google onboarding proof.
+Node QA needs the pinned dependency in `qa/package.json`, Google Chrome and writable
+external-disk scratch. `qa/container_release.py` is an optional image-build rehearsal, not
+part of the release's required install path. The private release receipt records actual
+architectures, base-image digest, checks, persistence evidence and remaining limitations.

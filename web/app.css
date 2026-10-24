@@ -2,7 +2,8 @@
 :root { --ease: cubic-bezier(.2, .9, .25, 1); color-scheme: dark; }
 
 /* Calendar maps domain colors onto the shared Appearance v1 semantic roles. */
-:root { --bg: var(--wz-bg, #10121c); --ink: var(--wz-text, #f3efff); --ink-2: var(--wz-text-secondary, #b9b0d8); --ink-3: var(--wz-text-muted, #9890b8); --line: var(--wz-border, #464050); --line-2: var(--wz-border, #464050); --glass: var(--wz-surface, #201c30); --glass-2: var(--wz-overlay, #2d2540); --violet: var(--wz-accent, #9d85ff); --violet-2: var(--wz-accent, #b99bff); --pink: var(--wz-accent-secondary, #ff80c0); --cyan: var(--wz-info, #59c7dc); --amber: var(--wz-warning, #ffbe55); --green: var(--wz-success, #60d5a0); --red: var(--wz-danger, #ff6b86); --on-accent: var(--wz-on-accent, #10121c); }
+:root { --bg: var(--wz-base, #10121c); --ink: var(--wz-text, #f3efff); --ink-2: var(--wz-text-secondary, #b9b0d8); --ink-3: var(--wz-text-muted, #9890b8); --line: var(--wz-border, #464050); --line-2: var(--wz-border, #464050); --glass: var(--wz-surface, #201c30); --glass-2: var(--wz-overlay, #2d2540); --violet: var(--wz-accent, #9d85ff); --violet-2: var(--wz-accent, #b99bff); --pink: var(--wz-accent-secondary, #ff80c0); --cyan: var(--wz-info, #59c7dc); --amber: var(--wz-warning, #ffbe55); --green: var(--wz-success, #60d5a0); --red: var(--wz-danger, #ff6b86); --on-accent: var(--wz-on-accent, #10121c); }
+html[data-wz-hosted] body { background: var(--wz-canvas); }
 @media (prefers-color-scheme: light) { :root:not([data-wz-hosted]) { --bg: #faf9fd; --ink: #211c30; --ink-2: #494252; --ink-3: #665e73; --line: #d9d3e3; --line-2: #d9d3e3; --glass: #f0ecf6; --glass-2: #e8e1f0; color-scheme: light; } }
 .status { flex: 0 0 auto; margin: 4px 18px 8px; font-size: 12px; color: var(--ink-2); }
 :root { --sheet: color-mix(in srgb, var(--violet) 9%, var(--bg)); --chrome: color-mix(in srgb, var(--bg) 94%, transparent);
@@ -174,7 +175,7 @@ a { color: var(--violet-2); }
   background: color-mix(in srgb, var(--c) 24%, var(--bg)); border-left: 3px solid var(--c); box-shadow: 0 0 0 1px var(--bg); }
 .blk b { display: block; font-weight: 650; word-break: normal; overflow-wrap: normal; }
 .blk span { display: block; color: var(--ink-2); font-size: 10px; margin-top: 1px; }
-.blk.past { opacity: .5; }
+.blk.past { opacity: .8; }
 .blk.live { box-shadow: 0 0 0 1px var(--bg), 0 0 0 2px color-mix(in srgb, var(--pink) 70%, transparent); }
 .blk:active { filter: brightness(1.25); }
 .tg.is-day .blk { padding: 4px 8px; font-size: 13.5px; border-radius: 8px; }
