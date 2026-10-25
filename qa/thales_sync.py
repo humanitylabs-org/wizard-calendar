@@ -73,7 +73,14 @@ def server_tests():
                 ENV['CALENDAR_URL'] = base
                 run(['node', 'qa/browser.cjs'])
                 run(['node', 'qa/hosted.cjs'])
+                ENV['QA_MOBILE'] = '1'
+                run(['node', 'qa/hosted.cjs'])
+                ENV.pop('QA_MOBILE')
                 run(['node', 'qa/setup-card.cjs'])
+                # The legacy suites own their synthetic data and select Bangkok in UI.
+                run(['node', 'qa.cjs'])
+                run(['node', 'qa_geometry.cjs'])
+                run(['node', 'qa_views.cjs'])
             finally:
                 proc.terminate(); proc.wait(timeout=10)
 

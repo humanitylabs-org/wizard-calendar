@@ -226,14 +226,9 @@
     if (mode === 'month') { renderGrid(); renderAgenda(); } else renderTime();
   }
 
-  // Keep Google/owner colors. Calendars without one use the live skin's palette.
+  // Preserve the live Calendar's skin palette; stored provider colors stay intact.
   function skinColours() {
-    const slot = new Map(); let n = 0;
-    for (const c of doc.calendars || []) {
-      slot.set(c.id, c.color || (/#holiday@/.test(c.id) ? 'var(--k-holiday)' : `var(--k${n++ % 5})`));
-      c.color = slot.get(c.id);
-    }
-    for (const e of doc.events || []) if (slot.has(e.cal)) e.color = slot.get(e.cal);
+    CalendarAppearance.colourCalendars(doc);
   }
   function renderTodayBtn() { $('[data-today-num]').textContent = +todayKey().slice(8); }
   function goToday() {
@@ -300,7 +295,13 @@
 
   // Authorization and credentials belong exclusively to Connected accounts.
   function openCals() {
-    const list = (doc?.calendars || []).map(c => `<button class="cal${c.ok ? '' : ' bad'}${c.hidden ? ' off' : ''}" data-vis="${esc(c.id)}" role="switch" aria-checked="${!c.hidden}"><i style="background:${esc(c.color)}"></i><span class="nm">${esc(c.name)}<small>${c.error ? esc(c.error) : c.hidden ? 'Hidden' : `${c.count} events`}</small></span><span class="sw"></span></button>`).join('');
+    const groups = new Map();
+    for (const c of doc?.calendars || []) {
+      const account = c.account || 'Calendars';
+      if (!groups.has(account)) groups.set(account, []);
+      groups.get(account).push(c);
+    }
+    const list = [...groups].map(([account, cals]) => `<div class="sec">${esc(account)}</div>` + cals.map(c => `<button class="cal${c.ok ? '' : ' bad'}${c.hidden ? ' off' : ''}" data-vis="${esc(c.id)}" role="switch" aria-checked="${!c.hidden}"><i style="background:${esc(c.color)}"></i><span class="nm">${esc(c.name)}<small>${c.hidden ? 'Hidden' : c.ok ? `${c.count} events` : 'Sync failed'}</small>${c.error ? `<small class="err">${esc(c.error)}</small>` : ''}</span><span class="sw"></span></button>`).join('')).join('');
     $('[data-sheet]').innerHTML = `<div class="sh-top"><span class="grab"></span><button class="x" data-close aria-label="Close">✕</button></div><h2>Settings</h2><section data-sync-section><div class="sec">Connected accounts</div>${(doc?.sync?.accounts || []).map(a => `<p class="note">${esc(a.email)} · ${a.calendar_allowed ? esc(a.status) : 'Calendar permission needed'}</p>`).join('') || '<p class="note">No linked accounts yet.</p>'}<p class="note">${esc(doc?.sync?.state === 'ok' ? 'Read-only sync is connected.' : setupMessages[doc?.sync?.state] || 'Read-only sync is connected.')}</p>${setupLink()}<div class="sync"><span>${doc?.sync?.last_success ? `Last sync ${esc(fmtSynced(doc.sync.last_success))}` : 'Not synced yet'} · every ${esc(doc?.sync?.interval_minutes || 10)} min</span><button class="btn wz-button" data-sync>Sync now</button></div>${doc?.sync?.last_error ? `<p class="msg err" role="alert">${esc(doc.sync.last_error)}</p>` : ''}<p class="note">Snapshot source: ${doc?.source === 'connected_accounts' ? 'Connected accounts' : doc?.source === 'manual_import' ? 'Manual import' : 'Empty'}</p></section><div class="sec">Calendars</div>${list || '<p class="note">Connect Google above, or import a manual snapshot below.</p>'}<div class="sec">Import snapshot JSON</div><p class="note">Manual import replaces the local snapshot, not your Google calendar. Automatic sync replaces it again when linked. Export a backup first if needed. Only import files you intend to show here.</p><input type="file" data-import accept="application/json,.json" aria-label="Import snapshot JSON"><a class="btn" href="api/export" download="calendar-snapshot.json">Export snapshot</a><div class="msg" data-c-msg role="status"></div>`;
     showSheet();
     if (!sheetOpen) { sheetOpen = true; sheetBack = WizardApp.back.push(() => { closeSheet(); return true; }); }

@@ -34,7 +34,7 @@ HOSTS = set(filter(None, os.environ.get('WIZARD_TRUSTED_HOSTS', '').split(',')))
 ORIGINS = set(filter(None, os.environ.get('WIZARD_TRUSTED_ORIGINS', '').split(','))) or {f'http://{h}' for h in HOSTS}
 LOCK = threading.RLock()
 MAX_BYTES = 4 * 1024 * 1024
-WEB = {'index.html', 'app.js', 'app.css', 'icon.svg'}
+WEB = {'index.html', 'app.js', 'app.css', 'icon.svg', 'wizard-appearance.js'}
 
 
 def empty():
@@ -403,9 +403,19 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_HEAD(self): self.do_GET()
 
+    def superseded_connect(self):
+        return self.respond({'error': 'manual_google_linking_superseded',
+            'message': 'Manual Google linking moved to Connected accounts. Open setup there; Calendar never accepts OAuth credentials.',
+            'setup_url': '/wizard-connectors/', 'superseded_by': 'Connected accounts'}, 410)
+
     def do_GET(self):
         if not self.trusted(): return
         p = self.route()
+        if p in ('/api/connect/start', '/api/connect/finish'): return self.superseded_connect()
+        if p.rstrip('/') == '/api':
+            return self.respond({'app': 'wizard-calendar', 'openapi_url': '/wizard-calendar/openapi.json',
+                'routes': ['/api/events', '/api/health', '/api/sync', '/api/import', '/api/export', '/api/preferences/import', '/api/calendars/visibility'],
+                'superseded': {'/api/connect/start': '/wizard-connectors/', '/api/connect/finish': '/wizard-connectors/'}})
         if p in ('/healthz', '/api/health'):
             return self.respond({'ok': True, 'app': 'wizard-calendar', 'version': '0.1.0', 'mode': read().get('source', 'empty'), 'configured': bool(read()['calendars']), 'sync': sync_status()})
         if p == '/api/sync': return self.respond(sync_status())
@@ -422,6 +432,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if not self.trusted(): return
         p = self.route()
+        if p in ('/api/connect/start', '/api/connect/finish'): return self.superseded_connect()
         if p not in ('/api/import', '/api/preferences/import', '/api/sync', '/api/calendars/visibility', '/mcp'): return self.respond({'error': 'not_found'}, 404)
         try:
             n = int(self.headers.get('Content-Length', '0'))

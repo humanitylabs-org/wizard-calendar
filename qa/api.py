@@ -30,6 +30,14 @@ def check(name, condition):
 
 status, health = request('/healthz')
 check('health identifies intended app', status == 200 and health['app'] == 'wizard-calendar')
+for prefix in ('', '/wizard-calendar'):
+    status, index = request(prefix + '/api')
+    check('API index ' + prefix, status == 200 and '/api/events' in index['routes'])
+    for route in ('/api/connect/start', '/api/connect/finish'):
+        for body in (None, {'email': 'synthetic@example.invalid', 'url': 'not-a-code'}):
+            status, result = request(prefix + route, body)
+            check('superseded ' + prefix + route + (' POST' if body else ' GET'), status == 410 and result['setup_url'] == '/wizard-connectors/' and result['superseded_by'] == 'Connected accounts')
+        check('superseded rejects untrusted origin ' + route, request(prefix + route, {}, {'Origin': 'https://untrusted.invalid'})[0] == 403)
 _, initial = request('/api/events')
 check('fresh install empty and unconnected', initial['events'] == [] and initial['calendars'] == [] and initial['connected'] == [])
 _, sync = request('/api/sync')
