@@ -81,6 +81,8 @@ def server_tests():
                 run(['node', 'qa.cjs'])
                 run(['node', 'qa_geometry.cjs'])
                 run(['node', 'qa_views.cjs'])
+                if ENV.get('LEGACY_WEB_DIR'):
+                    run(['node', 'qa/legacy-compare.cjs'])
             finally:
                 proc.terminate(); proc.wait(timeout=10)
 

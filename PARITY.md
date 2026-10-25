@@ -23,7 +23,11 @@ This audit uses the supplied live tree, not GitHub main. The legacy tree is read
 
 Additional packaged features remain: validated atomic snapshot import/export, update hold through successful import/readback, MCP event/sync tools, portable runtime, explicit timezone, preferences import. No production data, route/tile, live unit or grant changes are part of this PR.
 
+The packaged freshness/status line is an intentional additive row, not a lost view. Standalone is always the dark fallback, including a light-preferring browser. Sheet/close-bar surfaces flatten translucent shared overlay colors over the shared base so underlying events do not bleed through.
+
 ## Commands
+
+For an additional read-only rendered comparison, set `LEGACY_WEB_DIR` to a private copy of the actual legacy `web` directory. `qa/legacy-compare.cjs` injects only the same synthetic snapshot into that view, then compares exact titles, columns, month cell geometry, timed block placement/sizes, bottom tabs and event details/actions at phone and desktop widths. The original source and owner calendar data are never changed or contacted.
 
 `app-parity-gate LIVE CANDIDATE --json` (no waivers).
 

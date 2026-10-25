@@ -42,6 +42,7 @@ const shared={'skins.js':'57cfe09a435b67fdee38a33b060ed3038ef858b1037df11cef38a9
     for(const scheme of ['light','dark']) {
       await page.evaluate(({skin,scheme})=>{
         const root=document.documentElement;WosSkin.set(skin);
+        if(skin==='nebula')for(const [k,v] of Object.entries({'bg':'#05030c','ink':'#f3efff','ink-2':'#c6bbda','ink-3':'#a89dbb','line-2':'#393044','violet-2':'#b99bff','sk-win':'#10121c','glass-2':'#20182e'}))root.style.setProperty('--'+k,v);
         // Same explicitly labelled light compatibility surface as setup-card QA;
         // Nebula and Grove themselves ship dark palettes, not a light selector.
         if(scheme==='light')for(const [k,v] of Object.entries({'bg':skin==='grove'?'#f2f6ef':'#f6f3fc','ink':'#211b30','ink-2':'#51465e','ink-3':'#675b75','line-2':'#b9adc9','violet-2':skin==='grove'?'#44631c':'#6942bb','sk-win':skin==='grove'?'#f2f6ef':'#f6f3fc','glass-2':'#e5dfee'}))root.style.setProperty('--'+k,v);

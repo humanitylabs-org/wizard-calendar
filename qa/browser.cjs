@@ -20,6 +20,7 @@ fs.mkdirSync(out, {recursive:true});
         assert.match(await page.locator('[data-setup]').textContent(), /Connect your Google calendar/);
         assert.equal(await page.locator('[data-setup] [data-connect]').getAttribute('target'),'_top');
         assert.equal(await page.evaluate(() => WizardApp.version),1);
+        assert.equal(await page.evaluate(()=>getComputedStyle(document.documentElement).colorScheme),'dark','standalone stays dark even when the browser prefers light');
         await page.screenshot({path:path.join(out,`calendar-sync-setup-${size.width}-${scheme}.png`),fullPage:true});
         checks.push(`${size.width}/${scheme}: Google setup card, Connected accounts top-level link and real WizardApp`);
         await page.locator('[data-cals]').first().click();
