@@ -121,9 +121,22 @@ class SyncTests(unittest.TestCase):
         self.assertEqual(status['state'], 'ok'); self.assertEqual(len(status['accounts']), 2)
         self.assertEqual(len(m.read()['calendars']), 2); self.assertEqual(len(m.read()['events']), 3)
         self.assertTrue(all(c['grant_valid'] for c in fake.CALLS))
-        self.assertEqual(len(fake.CALLS), 4)
+        self.assertEqual(len(fake.CALLS), 6)
         self.assertEqual(m.read()['source'], 'connected_accounts')
         self.assertIsNotNone(status['last_success'])
+        event = m.read()['events'][0]
+        self.assertEqual(event['attendees'], 2)
+        self.assertEqual(event['description'], 'Synthetic notes')
+        self.assertEqual(event['meet'], 'https://meet.google.com/qa-fixture')
+        windows = [c for c in fake.CALLS if 'time_min' in c]
+        self.assertEqual(windows[0]['time_max'], windows[1]['time_min'])
+        import datetime as dt
+        span = dt.datetime.fromisoformat(windows[1]['time_max']) - dt.datetime.fromisoformat(windows[0]['time_min'])
+        self.assertEqual(span.days, 460)
+
+    def test_declined_events_are_not_visible(self):
+        self.grant(); self.sync('declined')
+        self.assertFalse(any(e['title'] == 'Shared meeting' for e in m.view()['events']))
 
     def test_prefs_preserved_and_digest_idempotent(self):
         self.grant(); self.sync(); first = m.read()
@@ -177,7 +190,10 @@ class SyncTests(unittest.TestCase):
         row = {'id': 'a', 'cal': 'a', 'title': ' Meeting ', 'start': '2026-10-15T10:00:00Z', 'end': '2026-10-15T11:00:00Z', 'allDay': False}
         other = dict(row, id='b', cal='b', title='meeting', start='2026-10-15T12:00:00+02:00', end='2026-10-15T13:00:00+02:00')
         self.assertEqual(len(m.dedupe([row, other])), 1)
-        self.assertEqual(len(m.dedupe([row, dict(other, end='2026-10-15T14:00:00+02:00')])), 2)
+        # Match the live Calendar's title+start rule even if one copy has a stale end.
+        self.assertEqual(len(m.dedupe([row, dict(other, end='2026-10-15T14:00:00+02:00')])), 1)
+        self.assertEqual(len(m.dedupe([dict(row, uid='same'), dict(other, uid='same', title='Renamed')])), 1)
+        self.assertEqual(len(m.dedupe([row, dict(other, start='2026-10-15T14:00:00+02:00')])), 2)
 
 
 if __name__ == '__main__': unittest.main(verbosity=2)

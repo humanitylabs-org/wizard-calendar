@@ -104,6 +104,10 @@ def validate(doc):
             if e <= s: raise ValueError()
         except (ValueError, TypeError): raise ValueError('start/end must be valid dates or offset timestamps; end must follow start')
         row = {'id': eid, 'cal': cid, 'title': text(ev.get('title'), 'title', 300, True), 'start': start, 'end': end, 'allDay': allday}
+        if 'uid' in ev: row['uid'] = text(ev['uid'], 'event.uid', 1024, True)
+        if 'attendees' in ev:
+            if type(ev['attendees']) is not int or not 0 <= ev['attendees'] <= 10000: raise ValueError('attendees must be a bounded nonnegative count')
+            row['attendees'] = ev['attendees']
         for key, limit in [('location', 500), ('description', 4000), ('link', 2000), ('meet', 2000)]:
             value = text(ev.get(key, ''), key, limit)
             if key in ('link', 'meet') and value:
@@ -241,8 +245,9 @@ def dedupe(events):
     seen, result = set(), []
     for e in sorted(events, key=lambda e: (e['cal'], e['id'])):
         stamp = lambda v: v if e['allDay'] else dt.datetime.fromisoformat(v.replace('Z', '+00:00')).astimezone(dt.timezone.utc).isoformat()
-        key = (e['title'].strip().lower(), stamp(e['start']), stamp(e['end']))
-        if key not in seen: seen.add(key); result.append(e)
+        keys = {('title', e['title'].strip().lower(), stamp(e['start']))}
+        if e.get('uid'): keys.add(('uid', e['uid'], stamp(e['start'])))
+        if not (keys & seen): seen.update(keys); result.append(e)
     return result
 
 
@@ -291,17 +296,29 @@ def sync_once():
             cal = validate({'schemaVersion': 1, 'calendars': [cal], 'events': []})['calendars'][0]
             cals.append(cal)
             try:
-                response = provider_call(link, 'events', {'account': account, 'calendar_id': provider_id, 'time_min': boundary(-30), 'time_max': boundary(180)})
-                if not isinstance(response.get('events'), list) or type(response.get('truncated')) is not bool: raise ValueError('invalid provider events')
-                if response['truncated']: raise ProviderError('events_truncated')
+                # Live range is -60/+400 days; the provider caps a request at 400.
+                # Overlapping multi-day events can occur in both half-open windows.
+                rows = {}
+                for first, last in ((-60, 180), (180, 400)):
+                    response = provider_call(link, 'events', {'account': account, 'calendar_id': provider_id, 'time_min': boundary(first), 'time_max': boundary(last)})
+                    if not isinstance(response.get('events'), list) or type(response.get('truncated')) is not bool: raise ValueError('invalid provider events')
+                    if response['truncated']: raise ProviderError('events_truncated')
+                    for row in response['events']:
+                        if not isinstance(row, dict): raise ValueError('invalid provider event')
+                        key = text(row.get('id'), 'provider event id', 650, True)
+                        if key in rows and rows[key] != row: raise ValueError('inconsistent event across windows')
+                        rows[key] = row
                 events = []
-                for e in response['events']:
+                for e in rows.values():
                     if not isinstance(e, dict) or e.get('account') != account or e.get('calendar_id') != provider_id: raise ValueError('event calendar mismatch')
-                    if e.get('status') == 'cancelled': continue
+                    if e.get('status') == 'cancelled' or e.get('self_response') == 'declined': continue
                     eid = text(e.get('id'), 'provider event id', 650, True)
                     events.append({'id': cid + ':' + hashlib.sha256(eid.encode()).hexdigest(), 'cal': cid,
                         'title': e.get('title'), 'start': e.get('start'), 'end': e.get('end'), 'allDay': e.get('all_day'),
-                        'location': e.get('location', ''), 'link': e.get('html_link', '')})
+                        'location': e.get('location', ''), 'link': e.get('html_link', ''),
+                        'description': e.get('description', ''), 'meet': e.get('meet', ''),
+                        **({'attendees': e['attendee_count']} if 'attendee_count' in e else {}),
+                        **({'uid': e['ical_uid']} if e.get('ical_uid') else {})})
                 cache[cid] = validate({'schemaVersion': 1, 'calendars': [cal], 'events': events})['events']
             except ProviderError as exc:
                 if exc.status == 403: raise

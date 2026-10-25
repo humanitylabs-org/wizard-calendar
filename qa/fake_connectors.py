@@ -46,13 +46,15 @@ class Handler(BaseHTTPRequestHandler):
             a, cid = body['account'], body['calendar_id']
             start = dt.datetime.fromisoformat(body['time_min'])
             end = dt.datetime.fromisoformat(body['time_max'])
-            assert dt.timedelta(days=209) <= end-start <= dt.timedelta(days=211)
+            assert dt.timedelta(days=219) <= end-start <= dt.timedelta(days=241)
+            CALLS[-1].update(time_min=body['time_min'], time_max=body['time_max'])
             day = dt.datetime.now(dt.timezone.utc).date().isoformat()
             def event(eid, title):
-                return {'id': eid, 'calendar_id': cid, 'account': a, 'title': title, 'start': day+'T10:00:00Z', 'end': day+'T11:00:00Z', 'all_day': False, 'location': 'Synthetic', 'status': 'confirmed', 'html_link': 'https://calendar.google.com/'}
+                return {'id': eid, 'calendar_id': cid, 'account': a, 'title': title, 'start': day+'T10:00:00Z', 'end': day+'T11:00:00Z', 'all_day': False, 'location': 'Synthetic', 'status': 'confirmed', 'html_link': 'https://calendar.google.com/', 'description':'Synthetic notes', 'meet':'https://meet.google.com/qa-fixture', 'attendee_count':2, 'ical_uid':('shared' if eid=='shared' else a+'-'+eid)+'@example.invalid', 'self_response':'accepted'}
             rows = [event('shared', 'Shared meeting'), event('own', a + (' refreshed' if MODE == 'partial' else ' meeting'))]
             if MODE == 'invalid': rows[0]['end'] = 'not-a-date'
             if MODE == 'unsafe': rows[0]['html_link'] = 'javascript:alert(1)'
+            if MODE == 'declined': rows[0]['self_response'] = 'declined'
             return self.send({'events': rows, 'truncated': MODE == 'truncated'})
         self.send({'error': 'not_found'}, 404)
 

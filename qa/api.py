@@ -57,6 +57,8 @@ for name, mutate in [
     ('unsafe link', lambda d: d['events'][0].update(link='javascript:alert(1)')),
     ('naive datetime', lambda d: d['events'][0].update(start='2026-10-15T10:00:00')),
     ('invalid timezone', lambda d: d.update(timezone='Not/AZone')),
+    ('invalid attendee count', lambda d: d['events'][0].update(attendees=-1)),
+    ('boolean attendee count', lambda d: d['events'][0].update(attendees=True)),
     ('duplicate ID', lambda d: d['events'].append(d['events'][0])),
     ('inverted range', lambda d: d['events'][0].update(end='2026-10-14T10:00:00Z')),
 ]:

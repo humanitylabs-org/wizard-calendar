@@ -23,6 +23,12 @@ This audit uses the supplied live tree, not GitHub main. The legacy tree is read
 
 Additional packaged features remain: validated atomic snapshot import/export, update hold through successful import/readback, MCP event/sync tools, portable runtime, explicit timezone, preferences import. No production data, route/tile, live unit or grant changes are part of this PR.
 
+## Provider contract prerequisite (not waived)
+
+The full source audit found losses beyond the lexical gate: the previous consumer dropped guest counts, provider descriptions and Meet URLs; used only -30/+180 days instead of the live -60/+400; and could not identify holiday palettes after hashing calendar IDs. This PR restores attendee-count validation/import/readback, description/Meet/UID/declined-response consumption, the full 460-day range split into two requests below the provider's 400-day cap, live title-or-UID+start dedupe, and holiday detection from provider_id.
+
+**Do not claim full end-to-end cutover parity from a green lexical gate alone.** Connected accounts PR #3 at `91a491e` currently requests only `id,summary,start,end,location,status,htmlLink` from Google and emits no description, meeting URL, attendee count, iCalUID or self-response. Its broker must emit bounded `description` (4000), `meet` (HTTPS, 2000), `attendee_count` (nonnegative integer), `ical_uid` and `self_response` (only the owner's response, no guest identities), and request the corresponding Google fields before those details can reach Calendar. The Calendar synthetic provider regression proves consumption but is not proof that the existing broker supplies them. Preserve real consent/grant restrictions. The provider omission is a coordinated-release prerequisite, not an approved feature drop.
+
 The packaged freshness/status line is an intentional additive row, not a lost view. Standalone is always the dark fallback, including a light-preferring browser. Sheet/close-bar surfaces flatten translucent shared overlay colors over the shared base so underlying events do not bleed through.
 
 ## Commands

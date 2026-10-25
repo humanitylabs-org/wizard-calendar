@@ -4,7 +4,7 @@ window.CalendarAppearance = Object.freeze({
   colourCalendars(doc) {
     const slots = new Map(); let n = 0;
     for (const cal of doc?.calendars || []) {
-      slots.set(cal.id, /#holiday@/.test(cal.id) ? 'var(--k-holiday)' : `var(--k${n++ % 5})`);
+      slots.set(cal.id, /#holiday@/.test(cal.provider_id || cal.id) ? 'var(--k-holiday)' : `var(--k${n++ % 5})`);
       cal.color = slots.get(cal.id);
     }
     for (const event of doc?.events || []) if (slots.has(event.cal)) event.color = slots.get(event.cal);
