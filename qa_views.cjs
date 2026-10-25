@@ -97,7 +97,7 @@ const near = (a, b, t = 2) => Math.abs(a - b) <= t;
   ok(!googleHex.includes(neb), `week events use skin colours (${neb})`);
   // Actual shared host skin transport (two skins × light/dark), document identity,
   // selected tab/date, grid scroll and open overlay are exercised by qa/hosted.cjs.
-  ok(await p.evaluate(()=>CalendarAppearance && WizardApp.theme.get()!=null), 'domain palette uses shared Appearance, no app-owned skin storage');
+  ok(await p.evaluate(()=>typeof CalendarAppearance.colourCalendars==='function' && typeof WizardApp.theme.onChange==='function' && !localStorage.getItem('wos.skin')), 'domain palette uses shared Appearance subscription, no app-owned skin storage (standalone has no host theme)');
   await p.click('[data-mode="month"]');
 
   // Persistence

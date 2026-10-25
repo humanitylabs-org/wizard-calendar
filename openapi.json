@@ -5,6 +5,17 @@
     "version": "0.1.0"
   },
   "paths": {
+    "/api": {
+      "get": {"summary": "API route index and manual-link supersessions", "responses": {"200": {"description": "Calendar API index"}, "403": {"description": "Untrusted Host or Origin"}}}
+    },
+    "/api/connect/start": {
+      "get": {"summary": "Superseded by Connected accounts", "responses": {"410": {"description": "Manual linking retired; setup_url /wizard-connectors/ and superseded_by Connected accounts"}, "403": {"description": "Untrusted Host or Origin"}}},
+      "post": {"summary": "Superseded by Connected accounts; credentials are not processed", "responses": {"410": {"description": "Manual linking retired; setup_url /wizard-connectors/ and superseded_by Connected accounts"}, "403": {"description": "Untrusted Host or Origin"}}}
+    },
+    "/api/connect/finish": {
+      "get": {"summary": "Superseded by Connected accounts", "responses": {"410": {"description": "Manual linking retired; setup_url /wizard-connectors/ and superseded_by Connected accounts"}, "403": {"description": "Untrusted Host or Origin"}}},
+      "post": {"summary": "Superseded by Connected accounts; callback codes are not processed", "responses": {"410": {"description": "Manual linking retired; setup_url /wizard-connectors/ and superseded_by Connected accounts"}, "403": {"description": "Untrusted Host or Origin"}}}
+    },
     "/healthz": {
       "get": {
         "summary": "Service identity and setup status",

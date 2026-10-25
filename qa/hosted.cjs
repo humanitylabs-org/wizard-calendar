@@ -40,7 +40,13 @@ const shared={'skins.js':'57cfe09a435b67fdee38a33b060ed3038ef858b1037df11cef38a9
   const state=await frame().evaluate(()=>({heading:document.querySelector('[data-month]').textContent,scroll:document.querySelector('[data-tbody]').scrollTop,sheet:document.querySelector('[data-sheet]').scrollTop}));
   for(const skin of ['nebula','grove']) {
     for(const scheme of ['light','dark']) {
-      await page.evaluate(({skin,scheme})=>{const root=document.documentElement;WosSkin.set(skin);root.style.colorScheme=scheme;WizAppearance.sync();},{skin,scheme});
+      await page.evaluate(({skin,scheme})=>{
+        const root=document.documentElement;WosSkin.set(skin);
+        // Same explicitly labelled light compatibility surface as setup-card QA;
+        // Nebula and Grove themselves ship dark palettes, not a light selector.
+        if(scheme==='light')for(const [k,v] of Object.entries({'bg':skin==='grove'?'#f2f6ef':'#f6f3fc','ink':'#211b30','ink-2':'#51465e','ink-3':'#675b75','line-2':'#b9adc9','violet-2':skin==='grove'?'#44631c':'#6942bb','sk-win':skin==='grove'?'#f2f6ef':'#f6f3fc','glass-2':'#e5dfee'}))root.style.setProperty('--'+k,v);
+        root.style.colorScheme=scheme;WizAppearance.sync();
+      },{skin,scheme});
       await frame().waitForFunction(({skin,scheme})=>WizardApp.theme.get()?.skin===skin&&WizardApp.theme.get()?.colorScheme===scheme,{skin,scheme});
       assert.equal(await frame().evaluate(()=>getComputedStyle(document.body).backgroundColor),'rgba(0, 0, 0, 0)');
       assert.deepEqual(await frame().evaluate(()=>({heading:document.querySelector('[data-month]').textContent,scroll:document.querySelector('[data-tbody]').scrollTop,sheet:document.querySelector('[data-sheet]').scrollTop})),state);
