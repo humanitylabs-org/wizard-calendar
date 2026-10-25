@@ -24,6 +24,14 @@
   "min_tipi_version": "4.8.0",
   "uid": 1000,
   "gid": 1000,
-  "form_fields": [],
+  "form_fields": [
+    {
+      "type": "text",
+      "env_variable": "CALENDAR_TIMEZONE",
+      "label": "Owner timezone (IANA name, optional)",
+      "required": false,
+      "hint": "For example Asia/Bangkok. Leave empty to display each browser's timezone; sync window then uses UTC."
+    }
+  ],
   "no_gui": false
 }

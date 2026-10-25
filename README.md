@@ -17,8 +17,9 @@ Visibility and calendar colors survive sync. Google colors are used when supplie
 otherwise the existing Wizard skin palette applies. Events dedupe across accounts by
 (title, start, end), normalizing title case/whitespace and timed UTC instants.
 
-`CALENDAR_TIMEZONE` defaults to UTC for the sync window (today −30 to +180 days).
-When unset/empty the UI displays in the browser timezone; set an IANA zone to pin it.
+The optional **Owner timezone** install-form field sets `CALENDAR_TIMEZONE` (an IANA
+zone). If blank, the sync window (today −30 to +180 days) uses UTC and the UI
+displays the browser timezone; an explicit owner zone takes precedence in the UI.
 Manual snapshot import remains available for fixtures/backups and is labelled separately;
 the next successful connected sync replaces manual data.
 

@@ -43,6 +43,14 @@ class SyncTests(unittest.TestCase):
     def sync(self, mode='ok'):
         fake.MODE = mode; m.sync_once(); return m.sync_status()
 
+    def test_owner_timezone_contract_and_browser_fallback(self):
+        field = next(f for f in json.loads((ROOT / 'runtipi/config.json').read_text())['form_fields'] if f['env_variable'] == 'CALENDAR_TIMEZONE')
+        self.assertFalse(field['required'])
+        with patch.object(m, 'DISPLAY_TZ', None):
+            self.assertIsNone(m.view()['display_timezone'])
+        with patch.object(m, 'DISPLAY_TZ', 'Asia/Bangkok'):
+            self.assertEqual(m.view()['display_timezone'], 'Asia/Bangkok')
+
     def test_not_linked(self):
         self.assertEqual(self.sync()['state'], 'not_linked')
         self.assertEqual(fake.CALLS, [])
