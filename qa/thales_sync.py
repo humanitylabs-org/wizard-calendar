@@ -73,6 +73,7 @@ def server_tests():
                 ENV['CALENDAR_URL'] = base
                 run(['node', 'qa/browser.cjs'])
                 run(['node', 'qa/hosted.cjs'])
+                run(['node', 'qa/setup-card.cjs'])
             finally:
                 proc.terminate(); proc.wait(timeout=10)
 
@@ -82,11 +83,12 @@ def compose_tests():
     p, fp = port(), port()
     base, fake = 'http://127.0.0.1:' + str(p), 'http://127.0.0.1:' + str(fp)
     recipe = json.loads((ROOT / 'runtipi/docker-compose.yml').read_text())
+    assert all('/wizard' not in v for v in recipe['services']['wizard-calendar']['volumes']), 'Grants mount belongs to WAM'
     image = recipe['services']['wizard-calendar']['image']
     names = {key: project + '_' + key for key in ('data', 'source', 'core', 'grants')}
     volumes = [{'type': 'volume', 'source': key, 'target': target, 'read_only': key != 'data'} for key, target in [('data', '/data'), ('source', '/app'), ('core', '/core'), ('grants', '/wizard')]]
     override = {'services': {
-        'wizard-calendar': {'environment': {'WIZARD_CORE_DIR': '/core', 'WIZARD_TRUSTED_HOSTS': '127.0.0.1:' + str(p), 'WIZARD_TRUSTED_ORIGINS': base, 'CALENDAR_SYNC_MINUTES': '0.01'}, 'ports': ['127.0.0.1:' + str(p) + ':8799'], 'volumes': volumes},
+        'wizard-calendar': {'environment': {'WIZARD_CORE_DIR': '/core', 'WIZARD_TRUSTED_HOSTS': '127.0.0.1:' + str(p), 'WIZARD_TRUSTED_ORIGINS': base, 'CALENDAR_SYNC_MINUTES': '0.01', 'WIZARD_GRANTS_FILE': '/wizard/grants.json'}, 'ports': ['127.0.0.1:' + str(p) + ':8799'], 'volumes': volumes},
         'fake-connectors': {'image': image, 'read_only': True, 'user': '1000:1000', 'environment': {'PYTHONDONTWRITEBYTECODE': '1'}, 'command': ['python', '/app/qa/fake_connectors.py'], 'volumes': ['source:/app:ro'], 'ports': ['127.0.0.1:' + str(fp) + ':8800']}},
         'volumes': {key: {'name': name, 'external': True} for key, name in names.items()}}
     path = OUT / 'compose.override.json'; path.write_text(json.dumps(override, indent=2))

@@ -15,9 +15,11 @@ only in **Connected accounts** (`wizard-connectors`), never in Calendar.
 
 ## Routing and permissions
 
-The App Manager supplies `${APP_DATA_DIR}/wizard/grants.json`. The package mounts its
+The App Manager supplies `${APP_DATA_DIR}/wizard/grants.json` and injects its
 parent directory read-only at `/wizard` (so atomic replacement and key rotation work)
-and sets `WIZARD_GRANTS_FILE=/wizard/grants.json`. The outgoing key may be stored under
+and sets `WIZARD_GRANTS_FILE=/wizard/grants.json`. The app recipe declares no grants
+mount. The canonical caller is `wizard-calendar`, not the legacy launcher id
+`calendar`. The outgoing key may be stored under
 `wizard-connectors` or `slot:calendar-source`; every provider call sends `X-Wizard-Grant`.
 Calendar never logs or exports that key. `enforce: false` does not authorize calls without
 an outgoing grant. Missing/malformed file, key or endpoint yields `not_linked`.
@@ -55,6 +57,44 @@ GET `/api/sync` and `/api/health` detail expose states `not_linked`, `needs_goog
 `needs_account`, `needs_permission`, `ok`, `error`, plus `last_success`, `last_error`,
 `accounts`, `calendar_errors`, `setup_url`, `syncing`, and `interval_minutes`.
 MCP tools `calendar_events` and `sync_status` are read-only and do not start a sync.
+
+## Optional legacy hidden/color preference import (owner-run only)
+
+This is **not automatic**, does not read the legacy app's files itself, and has not
+been run on the live calendar. First connect and sync the packaged Calendar, then
+back up `GET /api/export`. `POST /api/preferences/import` accepts the old config's
+`calendars: [{id,color?}]` and `hidden: [id]`. Other fields (names, accounts, tokens,
+events) are ignored and never saved. Colours must be `#RRGGBB`.
+
+Exact local ids take precedence; otherwise legacy Google ids match `provider_id`.
+When the same Google calendar is visible through several accounts, the preference
+applies to every matching copy. No name/email guessing is performed. Preferences
+for calendars not mentioned in the import are preserved. Matched calendars absent
+from `hidden` become visible. Response `matched` counts local calendars; `unmatched`
+lists old ids that are not currently available. Connect missing calendars and
+repeat the import if desired. Invalid input is rejected atomically (HTTP 400), and
+unmatched ids are not saved as pending future preferences. Events, source metadata,
+last successful sync and content timestamp are not replaced. Later syncs preserve
+imported colour/visibility for calendars that remain present.
+
+On the owner machine, with `CALENDAR_URL` set to the packaged app's private loopback
+URL (or an already authenticated owner route), run deliberately:
+
+```sh
+# Export contains private events; keep this backup owner-only.
+umask 077
+curl --fail --silent --show-error "$CALENDAR_URL/api/export" > calendar-before-prefs.json
+# Send ONLY preferences; never copy credentials or add a legacy home-directory mount.
+python3 -c 'import json,pathlib; d=json.loads((pathlib.Path.home()/".hermes/data/apps/wizard-calendar/config.json").read_text()); print(json.dumps({"calendars":[{k:c[k] for k in ("id","color") if k in c} for c in d["calendars"]],"hidden":d.get("hidden",[])}))' > calendar-prefs.json
+curl --fail --silent --show-error -H 'Content-Type: application/json' \
+  --data-binary @calendar-prefs.json "$CALENDAR_URL/api/preferences/import"
+curl --fail --silent --show-error "$CALENDAR_URL/api/export" > calendar-after-prefs.json
+```
+
+Check `matched`/`unmatched` and the exported hidden ids/colours before deleting the
+private payload. To undo immediately, POST the saved export to `/api/import` (this
+also restores its events). For a later rollback, restore only preference values
+from the backup so newer events are not overwritten.
 
 ## Manual import and legacy adapter
 

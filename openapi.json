@@ -69,6 +69,23 @@
         }
       }
     },
+    "/api/preferences/import": {
+      "post": {
+        "summary": "Optional owner-run legacy hidden/color import; see OSCAR-SETUP.md",
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {
+          "type": "object", "required": ["calendars", "hidden"],
+          "properties": {
+            "calendars": {"type": "array", "maxItems": 100, "items": {"type": "object", "required": ["id"], "properties": {"id": {"type": "string", "minLength": 1, "maxLength": 300}, "color": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$"}}}},
+            "hidden": {"type": "array", "maxItems": 100, "items": {"type": "string", "minLength": 1, "maxLength": 300}}
+          }
+        }}}},
+        "responses": {
+          "200": {"description": "Applied known preferences; matched local count and unmatched old ids returned"},
+          "400": {"description": "Invalid preferences; nothing written"},
+          "403": {"description": "Untrusted Host or Origin"}
+        }
+      }
+    },
     "/api/calendars/visibility": {
       "post": {
         "summary": "Set visible boolean for a known calendar id",

@@ -72,4 +72,17 @@ check('MCP events readback', len(json.loads(mcp['result']['content'][0]['text'])
 _, mcp = request('/mcp', {'jsonrpc':'2.0','id':3,'method':'tools/call','params':{'name':'sync_status','arguments':{}}})
 check('MCP sync status readback', json.loads(mcp['result']['content'][0]['text'])['state'] == 'not_linked')
 check('manual snapshot source labelled', request('/api/export')[1]['source'] == 'manual_import')
+# Real HTTP preferences endpoint; optional import never replaces events or timestamps.
+_, before_prefs = request('/api/export')
+prefs = {'calendars': [{'id': 'fixture', 'color': '#123ABC'}, {'id': 'unknown', 'color': '#abcdef'}], 'hidden': ['fixture'], 'account': 'ignored'}
+check('preferences rejects cross-origin', request('/api/preferences/import', prefs, {'Origin': 'https://untrusted.invalid'})[0] == 403)
+status, result = request('/api/preferences/import', prefs)
+check('preferences reports matched and unmatched', status == 200 and result['matched'] == 1 and result['unmatched'] == ['unknown'])
+_, after_prefs = request('/api/export')
+check('preferences colors and hidden read back', after_prefs['calendars'][0]['color'] == '#123ABC' and after_prefs['hidden'] == ['fixture'])
+check('preferences preserves events and timestamp', after_prefs['events'] == before_prefs['events'] and after_prefs['syncedAt'] == before_prefs['syncedAt'])
+check('preferences drops legacy account field', 'account' not in after_prefs)
+bad = copy.deepcopy(prefs); bad['calendars'][1]['color'] = 'red'
+check('preferences rejects invalid atomically', request('/api/preferences/import', bad)[0] == 400 and request('/api/export')[1] == after_prefs)
+check('preferences repeat is idempotent', request('/api/preferences/import', prefs)[0] == 200 and request('/api/export')[1] == after_prefs)
 print(json.dumps({'ok': True, 'checks': results, 'count': len(results), 'contentSha256': first['contentSha256']}, indent=2))

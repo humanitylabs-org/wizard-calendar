@@ -133,6 +133,46 @@ def import_snapshot(body, source='manual_import', metadata=None):
     return {'ok': True, 'changed': changed, 'events': len(normalized['events']), 'contentSha256': digest}
 
 
+def import_preferences(body):
+    """Optional owner-run legacy config import. Caller holds LOCK; never reads legacy files.
+
+    Only calendar ids/colors and hidden are consumed. Match exact local ids or Google
+    provider_id (possibly present through multiple accounts), never display names.
+    """
+    rows, hidden = body.get('calendars'), body.get('hidden')
+    if not isinstance(rows, list) or len(rows) > 100 or not isinstance(hidden, list) or len(hidden) > 100:
+        raise ValueError('calendars and hidden must be arrays (max 100 each)')
+    prefs = {}
+    for row in rows:
+        if not isinstance(row, dict): raise ValueError('calendar preference must be an object')
+        cid = text(row.get('id'), 'calendar.id', 300, True)
+        if cid in prefs: raise ValueError('duplicate calendar preference id')
+        color = row.get('color')
+        if color is not None and (not isinstance(color, str) or not re.fullmatch(r'#[0-9a-fA-F]{6}', color)):
+            raise ValueError('calendar.color must be #RRGGBB')
+        prefs[cid] = color
+    hidden = {text(cid, 'hidden id', 300, True) for cid in hidden}
+    if hidden - prefs.keys(): raise ValueError('hidden ids must appear in calendars')
+    doc = read()
+    matches, matched = {}, set()
+    for cal in doc['calendars']:
+        # An exact local id is more specific than a provider id.
+        source = cal['id'] if cal['id'] in prefs else cal.get('provider_id')
+        if source in prefs:
+            matches[cal['id']] = source; matched.add(source)
+            if prefs[source] is not None: cal['color'] = prefs[source]
+    current_hidden = set(doc.get('hidden', []))
+    for cid, source in matches.items():
+        if source in hidden: current_hidden.add(cid)
+        else: current_hidden.discard(cid)
+    doc['hidden'] = sorted(current_hidden)
+    if matches:
+        doc['contentSha256'] = hashlib.sha256(json.dumps(validate(doc), sort_keys=True).encode()).hexdigest()
+        save(doc)
+    return {'ok': True, 'matched': len(matches), 'unmatched': sorted(prefs.keys() - matched),
+            'hidden': doc['hidden']}
+
+
 class ProviderError(Exception):
     def __init__(self, code, status=0): self.code, self.status = code, status
 
@@ -145,11 +185,15 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 def provider_link():
     """Re-read rotating grants/endpoints on each sync. Never log their contents."""
     try:
-        grants = json.loads(Path(os.environ['WIZARD_GRANTS_FILE']).read_text())
-        outgoing = grants.get('outgoing', {})
+        raw = Path(os.environ.get('WIZARD_GRANTS_FILE') or '/wizard/grants.json').read_bytes()
+        if len(raw) > 262144: return None
+        grants = json.loads(raw)
+        if not isinstance(grants, dict): return None
+        outgoing, endpoints = grants.get('outgoing', {}), grants.get('provider_endpoints', {})
+        if not isinstance(outgoing, dict) or not isinstance(endpoints, dict): return None
         key = outgoing.get('wizard-connectors') or outgoing.get('slot:calendar-source')
         # Permission broker endpoint takes precedence over an optional operator override.
-        base = grants.get('provider_endpoints', {}).get('wizard-connectors') or grants.get('provider_endpoints', {}).get('slot:calendar-source') or os.environ.get('CONNECTORS_URL')
+        base = endpoints.get('wizard-connectors') or endpoints.get('slot:calendar-source') or os.environ.get('CONNECTORS_URL')
         if not isinstance(key, str) or not key: return None
         if not isinstance(base, str): return None
         url = urlsplit(base)
@@ -378,7 +422,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if not self.trusted(): return
         p = self.route()
-        if p not in ('/api/import', '/api/sync', '/api/calendars/visibility', '/mcp'): return self.respond({'error': 'not_found'}, 404)
+        if p not in ('/api/import', '/api/preferences/import', '/api/sync', '/api/calendars/visibility', '/mcp'): return self.respond({'error': 'not_found'}, 404)
         try:
             n = int(self.headers.get('Content-Length', '0'))
             if n <= 0 or n > MAX_BYTES: return self.respond({'error': 'body_size_limit'}, 413)
@@ -389,6 +433,8 @@ class Handler(BaseHTTPRequestHandler):
             with LOCK:
                 if p == '/api/import':
                     return self.respond(import_snapshot(body))
+                if p == '/api/preferences/import':
+                    return self.respond(import_preferences(body))
                 doc = read()
                 cid = body.get('id')
                 if cid not in {c['id'] for c in doc['calendars']} or not isinstance(body.get('visible'), bool): raise ValueError('known calendar id and boolean visible are required')

@@ -9,7 +9,10 @@ html[data-wz-hosted] body { background: var(--wz-canvas); }
 .setup { margin: auto; width: min(540px, calc(100% - 32px)); padding: 24px; border: 1px solid var(--wz-border, var(--line)); border-radius: 18px; background: var(--wz-surface, var(--glass)); color: var(--wz-text, var(--ink)); overflow: auto; }
 .setup h1 { margin: 0 0 16px; font-size: 24px; line-height: 1.2; }
 .setup p { color: var(--wz-text-secondary, var(--ink-2)); }
-.setup .btn { display: inline-block; margin: 8px 0 16px; text-decoration: none; }
+.setup .btn { display: inline-flex; align-items: center; justify-content: center; margin: 8px 0 16px; text-decoration: none; }
+/* Shared kit button roles: accent fill + on-accent ink, never pale accent text. */
+.setup .wz-button { min-height: 44px; padding: 8px 16px; border-radius: var(--wz-radius-tile, 12px); background: var(--wz-accent, var(--violet)); color: var(--wz-on-accent, var(--on-accent)); font-weight: 600; text-align: center; }
+[data-connect]:focus-visible { outline: 2px solid var(--wz-text, var(--ink)); outline-offset: 3px; }
 .setup .lnk { display: block; text-align: left; }
 [hidden] { display: none !important; }
 :root { --sheet: color-mix(in srgb, var(--violet) 9%, var(--bg)); --chrome: color-mix(in srgb, var(--bg) 94%, transparent);

@@ -107,8 +107,12 @@ API: `GET /healthz`, `GET /api/health`, `GET /api/events`, `GET /api/export`,
 `POST /api/import`, `POST /api/calendars/visibility`, `GET /api/sync`, `POST /api/sync {}`.
 MCP: `POST /mcp`, read-only tools `calendar_events` and `sync_status`.
 The same routes work beneath `/wizard-calendar/`. See OSCAR-SETUP.md for full input limits.
-The managed recipe mounts `${APP_DATA_DIR}/wizard:/wizard:ro` and reads grants at
-`/wizard/grants.json`. Wizard permissions must approve the Connected accounts edge.
+The App Manager injects its standard `${APP_DATA_DIR}/wizard:/wizard:ro` directory
+and `WIZARD_GRANTS_FILE=/wizard/grants.json`; the recipe has no app-specific grant
+mount. Code defaults to that path when the environment variable is absent and
+fails closed on missing/invalid files. Wizard permissions must approve the
+`wizard-calendar` → `wizard-connectors` edge. The provider endpoint from WAM takes
+precedence over `CONNECTORS_URL`; no hand-written grant bridge is needed.
 The source-package runtime has no inline source payload to regenerate; generate/check
 its recipe with `tools/package_runtime.py` after runtime configuration changes.
 

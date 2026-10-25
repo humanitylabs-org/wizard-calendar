@@ -19,7 +19,8 @@ compose = {'services': {'wizard-calendar': {
         'WIZARD_TRUSTED_HOSTS': '${WIZARD_TRUSTED_HOSTS:-}',
         'WIZARD_TRUSTED_ORIGINS': '${WIZARD_TRUSTED_ORIGINS:-}',
         'WIZARD_LOCAL_HOSTS': '127.0.0.1:${APP_PORT},localhost:${APP_PORT},wizard-calendar:8799'},
-    'volumes': ['${APP_SOURCE_DIR}:/app:ro', '${APP_DATA_DIR}/data:/data', '${APP_DATA_DIR}/wizard:/wizard:ro'],
+    # WAM injects its standard read-only /wizard grants directory.
+    'volumes': ['${APP_SOURCE_DIR}:/app:ro', '${APP_DATA_DIR}/data:/data'],
     'command': ['python', 'app/server.py'],
     'x-runtipi': {'is_main': True, 'internal_port': 8799}
 }}, 'x-runtipi': {'schema_version': 2, 'overrides': []}}

@@ -49,6 +49,55 @@ class SyncTests(unittest.TestCase):
         Path(os.environ['WIZARD_GRANTS_FILE']).write_text('{}')
         self.assertEqual(self.sync()['state'], 'not_linked')
 
+    def test_standard_grants_endpoint_precedence_and_fallback(self):
+        self.grant()
+        self.assertEqual(m.provider_link(), (self.base, fake.KEY))
+        grants = Path(os.environ['WIZARD_GRANTS_FILE'])
+        body = json.loads(grants.read_text()); body['provider_endpoints'] = {}
+        grants.write_text(json.dumps(body))
+        with patch.dict(os.environ, {'CONNECTORS_URL': self.base}):
+            self.assertEqual(m.provider_link(), (self.base, fake.KEY))
+        for invalid in ('[]', '{bad', '{"outgoing": []}', '{"outgoing": {"wizard-connectors":"key"}, "provider_endpoints": []}'):
+            grants.write_text(invalid)
+            self.assertIsNone(m.provider_link())
+
+    def test_legacy_preferences_map_provider_ids_and_survive_sync(self):
+        self.grant(); self.sync()
+        before = m.read(); cal = before['calendars'][0]
+        payload = {'calendars': [{'id': cal['provider_id'], 'name': 'ignored', 'color': '#123ABC'}, {'id': 'unknown', 'color': '#abcdef'}],
+                   'hidden': [cal['provider_id']], 'account': 'ignored', 'accounts': ['ignored']}
+        with m.LOCK: result = m.import_preferences(payload)
+        self.assertEqual(result['matched'], 2); self.assertEqual(result['unmatched'], ['unknown'])
+        after = m.read()
+        self.assertEqual(after['events'], before['events']); self.assertEqual(after['syncedAt'], before['syncedAt'])
+        self.assertEqual(after['hidden'], sorted(c['id'] for c in before['calendars'])); self.assertTrue(all(c['color'] == '#123ABC' for c in after['calendars']))
+        self.assertNotIn('accounts', after)
+        self.sync('recolor'); self.assertEqual(m.read()['hidden'], after['hidden'])
+        self.assertEqual(m.read()['calendars'][0]['color'], '#123ABC')
+        with m.LOCK: m.import_preferences(payload)
+        self.assertEqual(m.read()['events'], before['events'])
+
+    def test_legacy_preferences_fail_atomically_and_preserve_unmatched(self):
+        self.grant(); self.sync(); before = (m.DATA / 'snapshot.json').read_bytes()
+        cal = m.read()['calendars'][0]
+        for body in ({'calendars': [{'id': cal['provider_id'], 'color': '#123456'}, {'id': 'bad', 'color': 'red'}], 'hidden': []},
+                     {'calendars': [], 'hidden': [cal['provider_id']]},
+                     {'calendars': [{'id': 'a'}, {'id': 'a'}], 'hidden': []}):
+            with self.assertRaises(ValueError), m.LOCK: m.import_preferences(body)
+            self.assertEqual((m.DATA / 'snapshot.json').read_bytes(), before)
+        with m.LOCK: result = m.import_preferences({'calendars': [{'id': 'unmatched'}], 'hidden': []})
+        self.assertEqual(result['matched'], 0); self.assertEqual(result['unmatched'], ['unmatched'])
+        self.assertEqual((m.DATA / 'snapshot.json').read_bytes(), before)
+
+    def test_preferences_exact_local_id_and_other_hidden_preserved(self):
+        self.grant(); self.sync(); doc = m.read(); a,b = doc['calendars']
+        doc['hidden'] = [a['id'], b['id']]
+        with m.LOCK:
+            m.save(doc)
+            m.import_preferences({'calendars': [{'id': a['id'], 'color': '#111111'}], 'hidden': []})
+        self.assertEqual(m.read()['hidden'], [b['id']])
+        self.assertEqual(m.read()['calendars'][0]['color'], '#111111')
+
     def test_wrong_key(self):
         self.grant('wrong'); self.assertEqual(self.sync()['state'], 'needs_permission')
         self.assertFalse(fake.CALLS[0]['grant_valid'])
