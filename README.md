@@ -13,15 +13,18 @@ Provider endpoints come from the grants file first, with `CONNECTORS_URL` as an 
 fallback; missing grants/keys/endpoints yield `not_linked`. No container hostname is guessed.
 The last-good snapshot remains available during outages; per-calendar failures retain
 those calendars' events and surface errors. Invalid payloads never replace saved data.
-Visibility and calendar colors survive sync. Google colors are used when supplied;
-otherwise the existing Wizard skin palette applies. Events dedupe across accounts by
-(title, start, end), normalizing title case/whitespace and timed UTC instants.
+Visibility and stored calendar color preferences survive sync. The UI uses the live
+Wizard skin's calendar palette, including its holiday role. Events dedupe across accounts
+by (title, start) or (iCalUID, start), normalizing title case/whitespace and timed UTC instants.
 
 The optional **Owner timezone** install-form field sets `CALENDAR_TIMEZONE` (an IANA
-zone). If blank, the sync window (today −30 to +180 days) uses UTC and the UI
+zone). If blank, the sync window (today −60 to +400 days, split into two bounded provider requests) uses UTC and the UI
 displays the browser timezone; an explicit owner zone takes precedence in the UI.
 Manual snapshot import remains available for fixtures/backups and is labelled separately;
 the next successful connected sync replaces manual data.
+
+Live parity details, QA and the coordinated provider prerequisite for notes/Meet/guest
+counts are in [PARITY.md](PARITY.md). A lexical parity PASS alone does not authorize cutover.
 
 ## Install independently — no app image build
 
