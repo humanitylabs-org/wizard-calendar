@@ -5,6 +5,17 @@
     "version": "0.1.0"
   },
   "paths": {
+    "/api": {
+      "get": {"summary": "API route index and manual-link supersessions", "responses": {"200": {"description": "Calendar API index"}, "403": {"description": "Untrusted Host or Origin"}}}
+    },
+    "/api/connect/start": {
+      "get": {"summary": "Superseded by Connected accounts", "responses": {"410": {"description": "Manual linking retired; setup_url /wizard-connectors/ and superseded_by Connected accounts"}, "403": {"description": "Untrusted Host or Origin"}}},
+      "post": {"summary": "Superseded by Connected accounts; credentials are not processed", "responses": {"410": {"description": "Manual linking retired; setup_url /wizard-connectors/ and superseded_by Connected accounts"}, "403": {"description": "Untrusted Host or Origin"}}}
+    },
+    "/api/connect/finish": {
+      "get": {"summary": "Superseded by Connected accounts", "responses": {"410": {"description": "Manual linking retired; setup_url /wizard-connectors/ and superseded_by Connected accounts"}, "403": {"description": "Untrusted Host or Origin"}}},
+      "post": {"summary": "Superseded by Connected accounts; callback codes are not processed", "responses": {"410": {"description": "Manual linking retired; setup_url /wizard-connectors/ and superseded_by Connected accounts"}, "403": {"description": "Untrusted Host or Origin"}}}
+    },
     "/healthz": {
       "get": {
         "summary": "Service identity and setup status",
@@ -69,6 +80,23 @@
         }
       }
     },
+    "/api/preferences/import": {
+      "post": {
+        "summary": "Optional owner-run legacy hidden/color import; see OSCAR-SETUP.md",
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {
+          "type": "object", "required": ["calendars", "hidden"],
+          "properties": {
+            "calendars": {"type": "array", "maxItems": 100, "items": {"type": "object", "required": ["id"], "properties": {"id": {"type": "string", "minLength": 1, "maxLength": 300}, "color": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$"}}}},
+            "hidden": {"type": "array", "maxItems": 100, "items": {"type": "string", "minLength": 1, "maxLength": 300}}
+          }
+        }}}},
+        "responses": {
+          "200": {"description": "Applied known preferences; matched local count and unmatched old ids returned"},
+          "400": {"description": "Invalid preferences; nothing written"},
+          "403": {"description": "Untrusted Host or Origin"}
+        }
+      }
+    },
     "/api/calendars/visibility": {
       "post": {
         "summary": "Set visible boolean for a known calendar id",
@@ -87,7 +115,55 @@
     },
     "/mcp": {
       "post": {
-        "summary": "Stateless JSON-RPC MCP initialize, tools/list and calendar_events",
+        "summary": "Stateless JSON-RPC MCP: calendar_events and sync_status read-only tools",
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "403": {
+            "description": "Untrusted Host or Origin"
+          }
+        }
+      }
+    },
+    "/api/sync": {
+      "get": {
+        "summary": "Read grant-scoped Connected accounts sync state",
+        "responses": {
+          "200": {
+            "description": "Sync state, last_success, last_error, accounts, calendar_errors, setup_url, syncing and interval_minutes"
+          }
+        }
+      },
+      "post": {
+        "summary": "Request asynchronous sync now; poll GET until syncing is false",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Queued or coalesced with pending refresh"
+          },
+          "403": {
+            "description": "Untrusted Host or Origin"
+          }
+        }
+      }
+    },
+    "/api/health": {
+      "get": {
+        "summary": "Service identity and setup status",
         "responses": {
           "200": {
             "description": "Success"

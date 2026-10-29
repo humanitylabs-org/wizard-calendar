@@ -30,8 +30,19 @@ def check(name, condition):
 
 status, health = request('/healthz')
 check('health identifies intended app', status == 200 and health['app'] == 'wizard-calendar')
+for prefix in ('', '/wizard-calendar'):
+    status, index = request(prefix + '/api')
+    check('API index ' + prefix, status == 200 and '/api/events' in index['routes'])
+    for route in ('/api/connect/start', '/api/connect/finish'):
+        for body in (None, {'email': 'synthetic@example.invalid', 'url': 'not-a-code'}):
+            status, result = request(prefix + route, body)
+            check('superseded ' + prefix + route + (' POST' if body else ' GET'), status == 410 and result['setup_url'] == '/wizard-connectors/' and result['superseded_by'] == 'Connected accounts')
+        check('superseded rejects untrusted origin ' + route, request(prefix + route, {}, {'Origin': 'https://untrusted.invalid'})[0] == 403)
 _, initial = request('/api/events')
 check('fresh install empty and unconnected', initial['events'] == [] and initial['calendars'] == [] and initial['connected'] == [])
+_, sync = request('/api/sync')
+check('sync status available', sync['state'] == 'not_linked' and sync['last_success'] is None)
+check('health includes sync detail', request('/api/health')[1]['sync']['state'] == 'not_linked')
 fixture = json.loads((root / 'fixtures/example.json').read_text())
 status, first = request('/api/import', fixture)
 check('fixture import', status == 200 and first['events'] == 2 and first['changed'])
@@ -46,6 +57,8 @@ for name, mutate in [
     ('unsafe link', lambda d: d['events'][0].update(link='javascript:alert(1)')),
     ('naive datetime', lambda d: d['events'][0].update(start='2026-10-15T10:00:00')),
     ('invalid timezone', lambda d: d.update(timezone='Not/AZone')),
+    ('invalid attendee count', lambda d: d['events'][0].update(attendees=-1)),
+    ('boolean attendee count', lambda d: d['events'][0].update(attendees=True)),
     ('duplicate ID', lambda d: d['events'].append(d['events'][0])),
     ('inverted range', lambda d: d['events'][0].update(end='2026-10-14T10:00:00Z')),
 ]:
@@ -66,4 +79,20 @@ _, mcp = request('/mcp', {'jsonrpc':'2.0','id':1,'method':'initialize','params':
 check('MCP initialize', mcp['result']['serverInfo']['name'] == 'wizard-calendar')
 _, mcp = request('/mcp', {'jsonrpc':'2.0','id':2,'method':'tools/call','params':{'name':'calendar_events','arguments':{}}})
 check('MCP events readback', len(json.loads(mcp['result']['content'][0]['text'])['events']) == 2)
+_, mcp = request('/mcp', {'jsonrpc':'2.0','id':3,'method':'tools/call','params':{'name':'sync_status','arguments':{}}})
+check('MCP sync status readback', json.loads(mcp['result']['content'][0]['text'])['state'] == 'not_linked')
+check('manual snapshot source labelled', request('/api/export')[1]['source'] == 'manual_import')
+# Real HTTP preferences endpoint; optional import never replaces events or timestamps.
+_, before_prefs = request('/api/export')
+prefs = {'calendars': [{'id': 'fixture', 'color': '#123ABC'}, {'id': 'unknown', 'color': '#abcdef'}], 'hidden': ['fixture'], 'account': 'ignored'}
+check('preferences rejects cross-origin', request('/api/preferences/import', prefs, {'Origin': 'https://untrusted.invalid'})[0] == 403)
+status, result = request('/api/preferences/import', prefs)
+check('preferences reports matched and unmatched', status == 200 and result['matched'] == 1 and result['unmatched'] == ['unknown'])
+_, after_prefs = request('/api/export')
+check('preferences colors and hidden read back', after_prefs['calendars'][0]['color'] == '#123ABC' and after_prefs['hidden'] == ['fixture'])
+check('preferences preserves events and timestamp', after_prefs['events'] == before_prefs['events'] and after_prefs['syncedAt'] == before_prefs['syncedAt'])
+check('preferences drops legacy account field', 'account' not in after_prefs)
+bad = copy.deepcopy(prefs); bad['calendars'][1]['color'] = 'red'
+check('preferences rejects invalid atomically', request('/api/preferences/import', bad)[0] == 400 and request('/api/export')[1] == after_prefs)
+check('preferences repeat is idempotent', request('/api/preferences/import', prefs)[0] == 200 and request('/api/export')[1] == after_prefs)
 print(json.dumps({'ok': True, 'checks': results, 'count': len(results), 'contentSha256': first['contentSha256']}, indent=2))

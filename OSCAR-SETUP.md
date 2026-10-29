@@ -1,131 +1,122 @@
-# Oscar setup: wire the recipient's own calendar
+# Set up Calendar with Connected accounts
 
-## Boundaries
+Calendar is a read-only viewer. Google OAuth clients, refresh tokens and consent live
+only in **Connected accounts** (`wizard-connectors`), never in Calendar.
 
-Calendar 0.1.0 is a read-only snapshot viewer, **not an OAuth connection manager**.
-Nothing is connected on install. The app container has no gog binary, OAuth tokens,
-keyring mount, account IDs or scheduled tasks. Obtain the recipient's explicit permission
-before authorizing an account or replacing an imported snapshot. Never copy anyone else's
-calendar config, data directory, keyring or OAuth client. This release did not perform live
-provider authorization; the adapter was checked with synthetic gog-shaped results only.
+1. Install Connected accounts and Calendar on your Wizard.
+2. Approve Calendar → Connected accounts in Wizard app permissions. `uses` offers
+   compatibility, not permission: a missing/revoked grant makes no provider calls.
+3. Open Calendar → **Open Connected accounts**. Add your own Google OAuth app there
+   once, following that app's redirect/consent instructions. Never paste credentials,
+   OAuth callbacks or verification codes into agent chat or Calendar.
+4. Connect your Google account(s), allowing read-only Calendar access. Return to
+   Calendar → Settings → **Sync now**. Linked accounts and last successful sync appear
+   there. Reauthorization is also handled in Connected accounts.
 
-## A. Install and prove empty first
+## Routing and permissions
 
-Follow README.md and verify `GET /api/events` has `events: []`, `calendars: []`,
-`connected: []`. Test the included fixture through UI or curl and then explicitly restore
-`fixtures/empty.json` on the disposable test installation. This proves UI/API and import
-without involving a real account.
+The App Manager supplies `${APP_DATA_DIR}/wizard/grants.json` and injects its
+parent directory read-only at `/wizard` (so atomic replacement and key rotation work)
+and sets `WIZARD_GRANTS_FILE=/wizard/grants.json`. The app recipe declares no grants
+mount. The canonical caller is `wizard-calendar`, not the legacy launcher id
+`calendar`. The outgoing key may be stored under
+`wizard-connectors` or `slot:calendar-source`; every provider call sends `X-Wizard-Grant`.
+Calendar never logs or exports that key. `enforce: false` does not authorize calls without
+an outgoing grant. Missing/malformed file, key or endpoint yields `not_linked`.
 
-## B. Configure Google's read-only export on the recipient's machine
+Provider URL precedence: grants `provider_endpoints["wizard-connectors"]`, then
+`provider_endpoints["slot:calendar-source"]`, then `CONNECTORS_URL`. No guessed Docker
+container hostname is baked in. Do not use the provider's internal service URL as an
+owner-facing link. Its status response supplies `setup_url` (default app path
+`/wizard-connectors/`). WizardApp currently has no open-app navigation API; the setup
+link uses `target=_top`, an EXTEND candidate rather than a shell fork.
 
-Use gogcli **v0.31.1 or a version with the same flags/output**. Installation and provider OAuth
-client registration are operator prerequisites; use the official https://gogcli.sh instructions.
-The commands below were checked against v0.31.1 help, not a live recipient account.
-Create an isolated gog home and use the recipient's approved OAuth client. Store secrets via
-the local password manager/OS keyring; do not paste credentials or verification codes into chat.
-The owner completes Google consent interactively on their own device.
+## Sync and failure behavior
+
+The in-process worker syncs on startup, every `CALENDAR_SYNC_MINUTES` (default 10),
+and after `POST /api/sync {}` (202; poll GET `/api/sync` until `syncing` is false).
+It calls status → calendars → events for each calendar over today minus 30 days to
+ today plus 180 days. No Google SDK, gog binary, cron job or external import is required.
+The backend window uses `CALENDAR_TIMEZONE`, default UTC. If that environment variable
+is unset/empty, the UI displays in the browser's timezone; explicitly setting an IANA
+zone makes all viewers use it. Snapshot `timezone` remains the server/window zone.
+
+Snapshots use the same `validate()` + atomic `save()` path as manual imports. Existing
+calendar colors and hidden preferences survive; new calendars are visible and retain
+Google's #RRGGBB color, or use skin palette tokens if absent. IDs are stable hashes of
+(account, provider calendar ID), not email addresses embedded in public URLs.
+Events dedupe across calendars/accounts by normalized (title, start instant, end instant).
+Cancelled events are omitted; all-day end dates are exclusive. Raw validated per-calendar
+rows stay private in the snapshot cache to retain last-good data on partial failures.
+A failed calendar keeps its previous events and exposes a per-calendar error; truncated
+results are failures, not success. Malformed/unsafe provider payloads reject the entire
+new snapshot. No incomplete candidate is written. Deletions on successful calendars apply.
+`last_success` advances only on a fully successful sync, even if content is unchanged.
+
+GET `/api/sync` and `/api/health` detail expose states `not_linked`, `needs_google_app`,
+`needs_account`, `needs_permission`, `ok`, `error`, plus `last_success`, `last_error`,
+`accounts`, `calendar_errors`, `setup_url`, `syncing`, and `interval_minutes`.
+MCP tools `calendar_events` and `sync_status` are read-only and do not start a sync.
+
+## Optional legacy hidden/color preference import (owner-run only)
+
+This is **not automatic**, does not read the legacy app's files itself, and has not
+been run on the live calendar. First connect and sync the packaged Calendar, then
+back up `GET /api/export`. `POST /api/preferences/import` accepts the old config's
+`calendars: [{id,color?}]` and `hidden: [id]`. Other fields (names, accounts, tokens,
+events) are ignored and never saved. Colours must be `#RRGGBB`.
+
+Exact local ids take precedence; otherwise legacy Google ids match `provider_id`.
+When the same Google calendar is visible through several accounts, the preference
+applies to every matching copy. No name/email guessing is performed. Preferences
+for calendars not mentioned in the import are preserved. Matched calendars absent
+from `hidden` become visible. Response `matched` counts local calendars; `unmatched`
+lists old ids that are not currently available. Connect missing calendars and
+repeat the import if desired. Invalid input is rejected atomically (HTTP 400), and
+unmatched ids are not saved as pending future preferences. Events, source metadata,
+last successful sync and content timestamp are not replaced. Later syncs preserve
+imported colour/visibility for calendars that remain present.
+
+On the owner machine, with `CALENDAR_URL` set to the packaged app's private loopback
+URL (or an already authenticated owner route), run deliberately:
 
 ```sh
-# Paths and account below are operator-owned inputs, not bundled values.
-export GOG_HOME="$HOME/.config/calendar-connector-gog"
-mkdir -p "$GOG_HOME"
-chmod 700 "$GOG_HOME"
-gog --home "$GOG_HOME" auth credentials set /path/to/your/oauth-client.json
-# Substitute the owner's approved account, and review the read-only consent scope.
-gog --home "$GOG_HOME" --readonly auth add you@example.com --services calendar
-# Read-only list; choose calendars explicitly, rather than importing all subscriptions.
-gog --home "$GOG_HOME" --no-input --readonly -a you@example.com calendar calendars --all --json
+# Export contains private events; keep this backup owner-only.
+umask 077
+curl --fail --silent --show-error "$CALENDAR_URL/api/export" > calendar-before-prefs.json
+# Send ONLY preferences; never copy credentials or add a legacy home-directory mount.
+python3 -c 'import json,pathlib; d=json.loads((pathlib.Path.home()/".hermes/data/apps/wizard-calendar/config.json").read_text()); print(json.dumps({"calendars":[{k:c[k] for k in ("id","color") if k in c} for c in d["calendars"]],"hidden":d.get("hidden",[])}))' > calendar-prefs.json
+curl --fail --silent --show-error -H 'Content-Type: application/json' \
+  --data-binary @calendar-prefs.json "$CALENDAR_URL/api/preferences/import"
+curl --fail --silent --show-error "$CALENDAR_URL/api/export" > calendar-after-prefs.json
 ```
 
-On a headless host use gog's documented `--remote --step 1` and `--remote --step 2`
-flow through a secure local credential UI, not agent chat. No consent URLs, callback codes
-or keyring passwords should enter app config, logs, Git, container images or this release.
-For unattended operation arrange keyring unlocking in the connector service's secure
-credential environment; do not place passwords in the command line. No scheduler is
-installed or enabled by Calendar.
+Check `matched`/`unmatched` and the exported hidden ids/colours before deleting the
+private payload. To undo immediately, POST the saved export to `/api/import` (this
+also restores its events). For a later rollback, restore only preference values
+from the backup so newer events are not overwritten.
 
-Copy `connector.example.json` to a **private, untracked** path. Set mode 0600.
-Exact keys:
+## Manual import and legacy adapter
 
-```json
-{
-  "account": "you@example.com",
-  "timezone": "Europe/Lisbon",
-  "calendars": [{"id": "primary", "name": "My calendar"}],
-  "pastDays": 60,
-  "futureDays": 400
-}
-```
+Settings → Import snapshot JSON and `POST /api/import` remain supported and label their
+source `manual_import`. They replace the local snapshot only; the next connected sync
+replaces it again. Back up with GET `/api/export` first. Export includes hidden events
+and the private last-good cache; protect it like the owner's calendar. No fixture is
+automatically imported. `tools/gog_import.py` + `connector.example.json` remain optional
+legacy tools for users already operating their own gog installation; they are not the
+recommended setup and no scheduler is installed for them.
 
-Replace account with the explicitly authorized address. Calendar IDs come from `calendar
-calendars`; `primary` is a valid selected calendar alias. Timezone must be an IANA name.
-Each selected calendar becomes a separate visible calendar. Overlapping events on different
-calendars remain separate intentionally; deduplication is by event ID within one calendar.
-Attendee names/emails are not imported. Title, time, location, description and provider links
-are included and may themselves be private. Omit undesired calendars from the config.
+Import contract (4 MiB): `schemaVersion: 1`, IANA `timezone`, up to 100 unique
+`calendars: [{id,name,color?}]`, up to 10,000 unique `events` with `id`, `cal`, `title`,
+`start`, `end`, boolean `allDay`. Timed dates require UTC offsets; all-day dates are
+YYYY-MM-DD. End must follow start. Optional location (500), description (4000), link
+and meet (2000) are accepted; URLs must be credential-free https. Calendar IDs/names
+are at most 300 chars, event IDs 650, titles 300. Invalid input returns 400, unsafe
+Host/Origin 403, oversize 413, storage failure 500. Repeating content preserves digest
+and content timestamp. Visibility: `POST /api/calendars/visibility {id,visible}`.
 
-```sh
-# Uses GOG_HOME from the environment; never consults a hardcoded keyring file.
-python3 tools/gog_import.py --config /private/path/calendar-connector.json --gog /absolute/path/to/gog --output /private/path/first-snapshot.json
-# Inspect the snapshot privately. Then import through Settings, or explicitly:
-curl --fail -H 'Content-Type: application/json' --data-binary @/private/path/first-snapshot.json http://127.0.0.1:18787/api/import
-curl --fail http://127.0.0.1:18787/api/export
-# For repeated local refreshes, after approval:
-python3 tools/gog_import.py --config /private/path/calendar-connector.json --gog /absolute/path/to/gog --url http://127.0.0.1:18787
-```
-
-`--output` refuses an existing file and creates a new one mode 0600. The adapter uses
-`--no-input --readonly`, `--all-pages`, `--max 250`, and an explicit time window per calendar.
-Any provider error, timeout, unexpected envelope, incomplete pagination, invalid timestamp
-or link aborts the whole import; the previous app snapshot is retained. No partial sync is
-committed. A successful import performs API readback and compares contentSha256.
-
-If wanted, the recipient's agent can arrange an OS scheduler for the last command every ten
-minutes with single-job locking, protected environment, explicit working directory, private
-logs and failure alerts. **This is future operator setup, not installed by this test release.**
-The app's Reload button rereads the stored snapshot only; it does not contact Google.
-For remote gateways, use `--output` plus the gateway's authenticated import route; the
-bundled direct adapter deliberately refuses non-loopback upload URLs.
-
-## C. Exact import/API contract
-
-`POST /api/import`, Content-Type application/json, body at most 4 MiB:
-
-- `schemaVersion`: integer 1; `timezone`: valid IANA string (UTC default).
-- `calendars`: up to 100 `{id, name}` objects; unique nonempty strings up to 300 chars.
-- `events`: up to 10,000 objects, each with `id` (unique, max 650), `cal` (existing
-  calendar ID), `title` (nonempty max 300), `start`, `end`, and boolean `allDay`.
-- Timed start/end: ISO timestamps **with offsets** (e.g. `2026-10-15T10:00:00Z`).
-- All-day start/end: `YYYY-MM-DD`; end is **exclusive**. End must follow start.
-- Optional `location` (500), `description` (4000), `link` and `meet` (2000 each).
-  Links must be https URLs without credentials. Text is rendered escaped, not as HTML.
-- Extra fields are discarded. Do not rely on preserving provider raw JSON or arbitrary metadata.
-
-Import replaces the full snapshot atomically, preserving hidden-calendar preferences for
-retained IDs. Repeating identical content yields `changed: false`, same `contentSha256`,
-no duplicate events and no new import timestamp. `GET /api/export` includes hidden events;
-`GET /api/events` respects visibility. `POST /api/calendars/visibility` accepts
-`{"id":"primary","visible":false}`. Invalid input returns 400; untrusted Host/Origin 403;
-oversize request 413; storage failure 500. Inspect API readback, not HTTP status alone.
-MCP `calendar_events` returns the same visible read-only snapshot.
-
-Data directory: `DATA_DIR` (default `./data`, container `/data`), `snapshot.json` only.
-Runtime env: `PORT` (8799), `BIND` (127.0.0.1 outside Compose), `CALENDAR_TIMEZONE` (UTC),
-`WIZARD_TRUSTED_HOSTS` (comma-separated exact host:port), `WIZARD_TRUSTED_ORIGINS`
-(exact scheme://host:port), `WIZARD_CORE_DIR` (standalone approved shared resource directory).
-No OAuth credentials belong in any of these app variables.
-
-## Troubleshooting / rollback
-
-- Empty UI: check exported snapshot, timezone/date range, Settings visibility and selected day.
-- Shared core error: rerun the digest-checked fetch step or fix Wizard's shared-core gateway route.
-- 403: configure exact public Host and Origin through the authenticated gateway; do not trust
-  `X-Forwarded-Host` from arbitrary clients or add wildcards.
-- gog failure: reauthorize the intended account locally; validate `GOG_HOME`, keyring access,
-  OAuth scope and calendar ID without exposing provider stderr publicly.
-- Revoke access through the owner's Google account when removing the external connector.
-  Stop its scheduler separately. The Calendar service has no provider token to revoke.
-- Restore a backed-up snapshot through the import endpoint; keep data volume across app rollback.
-
-Deferred: self-service OAuth, credential UX, periodic sync management, token refresh recovery,
-connection health/permission diagnostics, ICS/CalDAV adapters and provider write operations.
+Runtime: stdlib Python, `DATA_DIR` (container `/data`), `PORT` 8799, `BIND`, exact
+`WIZARD_TRUSTED_HOSTS`/`WIZARD_TRUSTED_ORIGINS`, and `WIZARD_CORE_DIR` for standalone
+shared WizardApp resources. Preserve the data volume on upgrade. The server is
+single-owner, not a public authentication boundary: expose only via Wizard's gateway.
+Revoke Google through Connected accounts and revoke the app grant to stop access.

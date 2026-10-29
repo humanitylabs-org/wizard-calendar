@@ -20,7 +20,10 @@
         "PORT": "8799",
         "DATA_DIR": "/data",
         "PYTHONDONTWRITEBYTECODE": "1",
-        "CALENDAR_TIMEZONE": "${CALENDAR_TIMEZONE:-UTC}",
+        "CALENDAR_TIMEZONE": "${CALENDAR_TIMEZONE:-}",
+        "CALENDAR_SYNC_MINUTES": "${CALENDAR_SYNC_MINUTES:-10}",
+        "CONNECTORS_URL": "${CONNECTORS_URL:-}",
+        "WIZARD_GRANTS_FILE": "/wizard/grants.json",
         "WIZARD_TRUSTED_HOSTS": "${WIZARD_TRUSTED_HOSTS:-}",
         "WIZARD_TRUSTED_ORIGINS": "${WIZARD_TRUSTED_ORIGINS:-}",
         "WIZARD_LOCAL_HOSTS": "127.0.0.1:${APP_PORT},localhost:${APP_PORT},wizard-calendar:8799"

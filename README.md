@@ -1,9 +1,30 @@
 # Calendar — private test release 0.1.0
 
-Day, Week and Month views of a read-only calendar snapshot. **Fresh installs are empty.**
-No accounts, events, contacts, tokens, keyrings or live connector config ship in this app.
+Day, Week and Month views, synced in-app through **Connected accounts**. Fresh installs
+start with **Connect your Google calendar**: bring your own Google OAuth app once in
+Connected accounts, then authorize your accounts and read-only Calendar access there.
+Calendar never stores Google credentials. See [OSCAR-SETUP.md](OSCAR-SETUP.md).
+No accounts, events, contacts, tokens or live connector config ship in this app.
 The sample under `fixtures/` is synthetic and is never imported automatically.
-Provider setup is operator-managed: see [OSCAR-SETUP.md](OSCAR-SETUP.md).
+
+The worker refreshes on startup, every ten minutes (`CALENDAR_SYNC_MINUTES`), and from
+**Settings → Sync now**. It uses the owner's app-to-app grant, not an external gog cron.
+Provider endpoints come from the grants file first, with `CONNECTORS_URL` as an explicit
+fallback; missing grants/keys/endpoints yield `not_linked`. No container hostname is guessed.
+The last-good snapshot remains available during outages; per-calendar failures retain
+those calendars' events and surface errors. Invalid payloads never replace saved data.
+Visibility and stored calendar color preferences survive sync. The UI uses the live
+Wizard skin's calendar palette, including its holiday role. Events dedupe across accounts
+by (title, start) or (iCalUID, start), normalizing title case/whitespace and timed UTC instants.
+
+The optional **Owner timezone** install-form field sets `CALENDAR_TIMEZONE` (an IANA
+zone). If blank, the sync window (today −60 to +400 days, split into two bounded provider requests) uses UTC and the UI
+displays the browser timezone; an explicit owner zone takes precedence in the UI.
+Manual snapshot import remains available for fixtures/backups and is labelled separately;
+the next successful connected sync replaces manual data.
+
+Live parity details, QA and the coordinated provider prerequisite for notes/Meet/guest
+counts are in [PARITY.md](PARITY.md). A lexical parity PASS alone does not authorize cutover.
 
 ## Install independently — no app image build
 
@@ -18,14 +39,14 @@ curl --fail http://127.0.0.1:18787/healthz
 curl --fail http://127.0.0.1:18787/api/events
 ```
 
-Open **http://127.0.0.1:18787/**. It must say “No calendar yet.” Both events and calendars
+Open **http://127.0.0.1:18787/**. It must show “Connect your Google calendar.” Both events and calendars
 must be empty. The helper runs the same source recipe on a pinned public Python base
 image: no unpublished app image and no compiler/build toolchain are needed. It copies
 runtime source into a content-addressed named volume mounted read-only at `/app`.
 It separately fetches the approved shared client, verifies its SHA256, and installs it in
-an app-specific core volume. It creates writable app-data owned by UID/GID 1000. These
+an app-specific core volume. It prepares writable app-data for the recipe user (root, with all capabilities dropped). These
 volumes work with Docker Desktop, Linux Docker or a VM-backed Colima daemon.
-No host source/data/keyring directories are mounted. The managed runtime retains the
+No host source/data/keyring directories are mounted by the portable helper. The managed grants directory is mounted read-only. The managed runtime retains the
 source recipe's root user with all capabilities dropped, read-only root/source and
 no-new-privileges. No provider connector is started.
 
@@ -69,7 +90,7 @@ python3 tools/run_portable.py start
 The helper never deletes its named data volume (`calendar-test_data` by default). Do not
 manually delete it on update. Backups contain private calendar information; store privately.
 Importing a backup restores events; visibility preferences persist in the data volume.
-The service never seeds, resets, migrates another installation or calls Google on startup.
+The service never seeds, resets or migrates another installation. On startup it calls only the granted Connected accounts provider, never Google directly.
 
 ## Wizard package / developer option
 
@@ -86,9 +107,28 @@ Wizard must provide the shared core URL and attach the iframe via its shared app
 Catalog admission is a separate platform/release-owner step.
 No application image registry publication or custom image archive is required.
 
-API: `GET /healthz`, `GET /api/events`, `GET /api/export`, `POST /api/import`,
-`POST /api/calendars/visibility`. MCP: `POST /mcp`, tool `calendar_events` (read-only).
+API: `GET /healthz`, `GET /api/health`, `GET /api/events`, `GET /api/export`,
+`POST /api/import`, `POST /api/calendars/visibility`, `GET /api/sync`, `POST /api/sync {}`.
+MCP: `POST /mcp`, read-only tools `calendar_events` and `sync_status`.
 The same routes work beneath `/wizard-calendar/`. See OSCAR-SETUP.md for full input limits.
+The App Manager injects its standard `${APP_DATA_DIR}/wizard:/wizard:ro` directory
+and `WIZARD_GRANTS_FILE=/wizard/grants.json`; the recipe has no app-specific grant
+mount. Code defaults to that path when the environment variable is absent and
+fails closed on missing/invalid files. Wizard permissions must approve the
+`wizard-calendar` → `wizard-connectors` edge. The provider endpoint from WAM takes
+precedence over `CONNECTORS_URL`; no hand-written grant bridge is needed.
+The source-package runtime has no inline source payload to regenerate; generate/check
+its recipe with `tools/package_runtime.py` after runtime configuration changes.
+
+The read-only live-copy comparison found Day/Week/Month, Today, gear, palette and shared
+Back/theme already present in the package. They are retained, not replaced by legacy
+OAuth callback forms, hardcoded owner zones, root history guards or local skin storage.
+WizardApp.nav lacks openApp; setup uses provider `setup_url` with `target=_top` as an
+EXTEND candidate. No wizard-ux/shell changes are included.
+
+Run `python3 qa/sync.py` for the stdlib fake-provider contract suite (no real Google
+account). `qa/thales_sync.py` is the disposable worker runner for API/browser and the
+actual Runtipi Compose recipe plus a fake provider on the same Docker network.
 
 ## QA and evidence boundaries
 

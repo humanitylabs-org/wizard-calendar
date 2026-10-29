@@ -5,7 +5,7 @@ name: Calendar
 type: service
 category: app
 version: 0.1.0
-summary: Read-only calendar views. Starts empty; import a snapshot or configure your own external connector.
+summary: Read-only calendar views synced through Connected accounts; bring your own Google OAuth app once.
 license: MIT
 source: https://github.com/humanitylabs-org/wizard-calendar
 runtime:
@@ -29,9 +29,9 @@ view:
     path: web
     build: python3 tools/check_view.py
     dist: web
-provides: [calendar-viewing, calendar-import]
+provides: [calendar-viewing, calendar-import, calendar-sync]
 system: false
-uses: []
+uses: [wizard-connectors]
 needs: []
 health: /healthz
 ---
@@ -40,6 +40,6 @@ health: /healthz
 
 Empty by default. No provider credentials or account configuration are included.
 API and MCP read a local snapshot; provider authorization happens outside this app.
-See OSCAR-SETUP.md for the explicit Google/gog adapter and snapshot contract.
+See OSCAR-SETUP.md for Connected accounts setup, grant routing and the manual snapshot contract.
 The Wizard gateway must serve its approved shared app-client.js resource. A standalone
 install uses tools/run_portable.py without an app image build. Not a public store listing.

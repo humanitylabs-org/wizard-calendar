@@ -1,15 +1,25 @@
 ---
 name: calendar
-description: Read imported calendar events or set up an explicitly authorized snapshot import.
+description: Read calendar events and Connected accounts sync health; guide one-time Google setup.
 ---
 # Calendar
 
-Use the installed calendar_events MCP tool to read the visible snapshot. It cannot
-create or edit provider events. Report the snapshot's syncedAt; do not imply it is live.
-For a new install, explain that it starts empty. Read OSCAR-SETUP.md from the source
-bundle before configuring a connector. Never reuse another user's accounts or keys.
-GET /api/export backs up all imported events, including hidden calendars.
-POST /api/import replaces the snapshot after validation; ask before replacing user data.
-Read GET /api/export back and compare contentSha256 after import. Importing the same
-snapshot is idempotent. Preserve the app-data volume on upgrade or uninstall unless
-explicit deletion was approved. Connector scheduling and OAuth are operator-managed.
+Use MCP `calendar_events` for visible read-only events and `sync_status` for connection
+state, linked accounts, last_success and errors. Always report freshness; never imply
+that cached events are a live Google query. Neither read tool creates or edits events.
+
+For a fresh installation open Connected accounts from Calendar. The owner brings their
+own Google OAuth app once, connects accounts and permits read-only Calendar access there.
+Read OSCAR-SETUP.md for setup and grant routing. Calendar holds no Google credentials.
+Never reuse another owner's accounts/keys or ask for secrets in chat.
+
+GET /api/sync reads health; POST /api/sync {} requests a background refresh (202), then
+poll GET until syncing is false. Automatic sync runs at startup and every ten minutes
+unless configured otherwise. Missing grant/endpoint means not_linked, not a crash.
+Partial failures retain last-good events; inspect calendar_errors and last_error.
+
+GET /api/export backs up all saved data, including hidden calendars and the last-good
+per-calendar cache. Protect it privately. POST /api/import is an explicit legacy/manual
+snapshot replacement; ask before overwriting owner data. Read export back and compare
+contentSha256. The next linked automatic sync replaces manual data. Preserve the app-data
+volume on upgrade/uninstall unless deletion was explicitly approved.
