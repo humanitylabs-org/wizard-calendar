@@ -2,7 +2,7 @@
 wizard: 0.2
 id: wizard-calendar
 name: Calendar
-type: service
+type: view
 category: app
 version: 0.1.0
 summary: Read-only calendar views. Starts empty; import a snapshot or configure your own external connector.
