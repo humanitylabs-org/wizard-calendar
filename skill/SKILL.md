@@ -1,15 +1,21 @@
 ---
 name: calendar
-description: Read imported calendar events or set up an explicitly authorized snapshot import.
+description: Read visible calendar events or guide the owner through adding a private Google iCal source.
 ---
 # Calendar
 
-Use the installed calendar_events MCP tool to read the visible snapshot. It cannot
-create or edit provider events. Report the snapshot's syncedAt; do not imply it is live.
-For a new install, explain that it starts empty. Read OSCAR-SETUP.md from the source
-bundle before configuring a connector. Never reuse another user's accounts or keys.
-GET /api/export backs up all imported events, including hidden calendars.
-POST /api/import replaces the snapshot after validation; ask before replacing user data.
-Read GET /api/export back and compare contentSha256 after import. Importing the same
-snapshot is idempotent. Preserve the app-data volume on upgrade or uninstall unless
-explicit deletion was approved. Connector scheduling and OAuth are operator-managed.
+Use the installed `calendar_events` MCP tool to read the visible read-only calendar state.
+It cannot create, edit, delete or RSVP to provider events. Report `syncedAt` and any source
+errors rather than implying every event is live.
+
+Fresh installs start empty. The normal owner setup is Calendar → Settings → Add calendar
+with Google's **Secret address in iCal format**. That URL is a bearer secret: never ask the
+owner to paste it into chat, never repeat it, and never place it in logs or task output. Direct
+them to the owner-facing Calendar screen instead. Read OSCAR-SETUP.md from the source bundle
+before configuring an operator-managed connector.
+
+`GET /api/export` backs up normalized events and visibility but deliberately excludes private
+iCal links. `POST /api/import` replaces the visible snapshot after validation; ask before
+replacing user data. Saved iCal sources remain and return on the next refresh. Preserve the
+app-data volume on upgrade or uninstall unless explicit deletion was approved; it contains
+the private source configuration. Never reuse another person's account, feed or credentials.

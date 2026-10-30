@@ -1,9 +1,12 @@
 # Calendar — private test release 0.1.0
 
-Day, Week and Month views of a read-only calendar snapshot. **Fresh installs are empty.**
-No accounts, events, contacts, tokens, keyrings or live connector config ship in this app.
-The sample under `fixtures/` is synthetic and is never imported automatically.
-Provider setup is operator-managed: see [OSCAR-SETUP.md](OSCAR-SETUP.md).
+Day, Week and Month views of read-only calendars. **Fresh installs are empty.**
+The owner can add a private Google iCal link in Settings; Calendar stores it locally,
+refreshes the feed, and never creates or edits provider events. The sample under `fixtures/`
+is synthetic and is never imported automatically. A private iCal link is a bearer secret:
+keep the data volume and backups private, and never paste the link into chat or logs.
+Advanced snapshot import and operator-managed connectors remain available; see
+[OSCAR-SETUP.md](OSCAR-SETUP.md).
 
 ## Install independently — no app image build
 
@@ -36,6 +39,19 @@ The helper binds loopback only and sets exact matching Host and Origin allowlist
 are not caller authentication: never expose this single-owner service directly to a LAN
 or Internet. Remote Wizard access must go through its authenticated gateway.
 
+## Add a Google calendar
+
+1. In Google Calendar, open **Settings and sharing → Integrate calendar** for the calendar.
+2. Copy **Secret address in iCal format**. Do not use a public link for a private calendar.
+3. In Calendar, open **Settings → Add calendar**, enter a name, paste the link, and choose
+   **Add calendar**. `https://` and `webcal://` Google Calendar links are accepted.
+
+Calendar tests the feed before saving it. The owner-facing API and screen never return the
+private URL. Each saved feed refreshes every 15 minutes by default and can be refreshed with
+**Sync now**. A failed refresh keeps the last good events and shows a source-level error.
+Removing a source deletes its imported events and saved link from Calendar; it does not change
+or delete the Google calendar. Revoke a leaked link by resetting the private URL in Google.
+
 ## Fixture/import proof
 
 ```sh
@@ -50,8 +66,9 @@ must appear. Tap either for details; Back closes details and leaves the app open
 Day/Week/Month, hide/show the fixture calendar in Settings, then export the snapshot.
 
 Restore an empty **test** instance by importing `fixtures/empty.json` using the same command
-or file picker. This replaces imported data, not provider events. Never clear an actual user
-snapshot without permission. The source fixture is not loaded by the server on startup.
+or file picker. This replaces the visible snapshot, not provider events or saved iCal sources;
+a later sync will restore subscribed events. Never clear actual user data without permission.
+The source fixture is not loaded by the server on startup.
 
 ## Update, backup, remove
 
@@ -67,9 +84,11 @@ python3 tools/run_portable.py start
 ```
 
 The helper never deletes its named data volume (`calendar-test_data` by default). Do not
-manually delete it on update. Backups contain private calendar information; store privately.
-Importing a backup restores events; visibility preferences persist in the data volume.
-The service never seeds, resets, migrates another installation or calls Google on startup.
+manually delete it on update. Backups and the data volume contain private calendar information;
+store them privately. `GET /api/export` backs up events and visibility, but deliberately excludes
+private iCal links. Back up the protected app-data volume to preserve subscriptions across a
+host migration. The service never seeds, resets or migrates another installation. Saved iCal
+sources refresh periodically after startup; a fresh install makes no Google requests.
 
 ## Wizard package / developer option
 
@@ -87,17 +106,23 @@ Catalog admission is a separate platform/release-owner step.
 No application image registry publication or custom image archive is required.
 
 API: `GET /healthz`, `GET /api/events`, `GET /api/export`, `POST /api/import`,
-`POST /api/calendars/visibility`. MCP: `POST /mcp`, tool `calendar_events` (read-only).
-The same routes work beneath `/wizard-calendar/`. See OSCAR-SETUP.md for full input limits.
+`POST /api/calendars/visibility`, redacted `GET /api/sources`, `POST /api/sources`,
+`POST /api/sources/remove`, and `POST /api/sync`. MCP: `POST /mcp`, tool
+`calendar_events` (read-only). The same routes work beneath `/wizard-calendar/`.
+See OSCAR-SETUP.md for source restrictions, privacy boundaries and full input limits.
 
 ## QA and evidence boundaries
 
 `python3 qa/api.py --url http://127.0.0.1:18787` is destructive **test-data-only QA**.
-Run only against a new disposable volume. `qa/browser.cjs` tests real Chrome, UI import,
-views and Back with the separately fetched shared client. `qa/hosted.cjs` uses the real
-pinned shared services/Appearance implementations in a labelled test registry/iframe harness.
-It is not the full production shell, native iPhone/Android or live Google onboarding proof.
-Node QA needs the pinned dependency in `qa/package.json`, Google Chrome and writable
-external-disk scratch. `qa/container_release.py` is an optional image-build rehearsal, not
-part of the release's required install path. The private release receipt records actual
-architectures, base-image digest, checks, persistence evidence and remaining limitations.
+Run only against a new disposable volume. `qa/ical.py`, `qa/ical_sources.py` and
+`qa/http_ical.py` use synthetic feeds to cover URL boundaries, proxy/redirect refusal,
+recurrence parsing, secret redaction, persistence, rollback, sync and source removal.
+`qa/ical_browser.cjs` covers owner-facing Add calendar, Sync now and Remove at phone and
+desktop widths in light and dark. `qa/browser.cjs` retains the existing UI import, view,
+visibility and Back coverage. `qa/hosted.cjs` uses the real pinned shared services/Appearance
+implementations in a labelled test registry/iframe harness. It is not the full production
+shell, a physical iPhone/Android, or live Google-account proof. Node QA needs the pinned
+dependency in `qa/package.json`, a Chromium-family browser and writable scratch space.
+`qa/container_release.py` is an optional image-build rehearsal, not part of the release's
+required install path. The private release receipt records actual architectures, base-image
+digest, checks, persistence evidence and remaining limitations.

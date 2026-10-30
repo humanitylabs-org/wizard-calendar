@@ -93,7 +93,8 @@
     const when = doc.syncedAt ? fmtSynced(doc.syncedAt) : 'never';
     const cals = (doc.calendars || []).filter((c) => !c.hidden).map((c) => `${esc(c.name)}`).join(' · ');
     const err = doc.syncError || (doc.errors || []).join('; ');
-    $('[data-foot]').innerHTML = `Calendar snapshot · ${cals}<br>Imported ${when} · <button class="lnk" data-cals>Settings</button>${err ? `<br><span class="err">Sync issue: ${esc(err)}</span>` : ''}`;
+    const source = (doc.connected || []).length ? 'Updated' : 'Imported';
+    $('[data-foot]').innerHTML = `Calendar · ${cals}<br>${source} ${when} · <button class="lnk" data-cals>Settings</button>${err ? `<br><span class="err">Sync issue: ${esc(err)}</span>` : ''}`;
   }
 
   // ---- Day / Week time grid ----
@@ -239,7 +240,7 @@
     else renderTime();
   }
 
-  function render() { skinColours(); index(); renderTodayBtn(); renderView(); renderFoot(); $('[data-status]').textContent = doc.calendars?.length ? `${doc.events.length} visible events · ${TZ}` : 'No calendar yet. Open Settings to import a fixture or your own snapshot.'; }
+  function render() { skinColours(); index(); renderTodayBtn(); renderView(); renderFoot(); $('[data-status]').textContent = doc.calendars?.length ? `${doc.events.length} visible events · ${TZ}` : 'No calendar yet. Open Settings to add a Google iCal link.'; }
 
   // Domain overlays use the shared Back stack, never app-owned root guards.
   let sheetBack = null;
@@ -277,10 +278,11 @@
   }
   WizardApp.ready({ name: 'Calendar', version: '0.1.0' });
 
-  // Snapshot settings: provider authorization belongs to the operator, not this UI.
+  // Read-only sources: the private iCal URL is submitted once and never rendered back into the page.
   function openCals() {
     const list = (doc?.calendars || []).map(c => `<button class="cal${c.hidden ? ' off' : ''}" data-vis="${esc(c.id)}" role="switch" aria-checked="${!c.hidden}"><i style="background:${esc(c.color)}"></i><span class="nm">${esc(c.name)}<small>${c.hidden ? 'Hidden' : `${c.count} events`}</small></span><span class="sw"></span></button>`).join('');
-    $('[data-sheet]').innerHTML = `<div class="sh-top"><span class="grab"></span><button class="x" data-close aria-label="Close">✕</button></div><h2>Settings</h2><p class="note">Read-only calendar snapshot. No account is connected by this app. Provider setup: OSCAR-SETUP.md in the release.</p><div class="sync"><span>${doc?.syncedAt ? `Imported ${esc(fmtSynced(doc.syncedAt))}` : 'No calendar imported'}</span><button class="btn" data-sync>Reload</button></div><div class="sec">Calendars</div>${list || '<p class="note">Start with the included synthetic fixture or ask your agent to import your own calendar.</p>'}<div class="sec">Import snapshot JSON</div><p class="note">Import replaces the entire snapshot, not your Google calendar. Export a backup first if needed. Only import files you intend to show here.</p><input type="file" data-import accept="application/json,.json" aria-label="Import snapshot JSON"><a class="btn" href="api/export" download="calendar-snapshot.json">Export snapshot</a><div class="msg" data-c-msg role="status"></div>`;
+    const sources = (doc?.connected || []).map(source => `<div class="source"><span class="nm">${esc(source.name)}<small>${source.error ? esc(source.error) : source.lastSyncedAt ? `Updated ${esc(fmtSynced(source.lastSyncedAt))}` : 'Google iCal'}</small></span><button class="remove" data-remove-source="${esc(source.id)}">Remove</button></div>`).join('');
+    $('[data-sheet]').innerHTML = `<div class="sh-top"><span class="grab"></span><button class="x" data-close aria-label="Close">✕</button></div><h2>Settings</h2><p class="note">Calendar is read-only. Add a private Google iCal link to see that calendar here.</p><div class="sync"><span>${doc?.syncedAt ? `Updated ${esc(fmtSynced(doc.syncedAt))}` : 'No calendar added'}</span><button class="btn" data-sync>Sync now</button></div><div class="sec">Your calendars</div>${sources || '<p class="note">No Google iCal calendars added.</p>'}<div class="sec">Add calendar</div><label class="field">Calendar name<input type="text" data-source-name maxlength="300" autocomplete="off" placeholder="Personal"></label><label class="field">Google iCal link<input type="text" data-source-url maxlength="4096" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://calendar.google.com/…/basic.ics"></label><p class="note">Use the private iCal link from Google Calendar settings. Anyone with that link can read the calendar, so it stays private on this Wizard.</p><button class="btn" data-add-source>Add calendar</button><div class="sec">Visible calendars</div>${list || '<p class="note">Calendars appear here after they are added.</p>'}<div class="sec">Advanced</div><p class="note">Snapshot import replaces the current visible snapshot, not your Google calendar. Your saved iCal links remain and return on the next sync.</p><input type="file" data-import accept="application/json,.json" aria-label="Import snapshot JSON"><a class="btn" href="api/export" download="calendar-snapshot.json">Export snapshot</a><div class="msg" data-c-msg role="status"></div>`;
     showSheet();
     if (!sheetOpen) { sheetOpen = true; sheetBack = WizardApp.back.push(() => { closeSheet(); return true; }); }
   }
@@ -297,6 +299,28 @@
     btn.querySelector('small').textContent = visible ? 'Showing…' : 'Hidden';
     try { await post('api/calendars/visibility', { id, visible }); await load(false); if (sheetOpen) openCals(); }
     catch (e) { btn.classList.toggle('off', visible); btn.disabled = false; say(e.message); }
+  }
+
+  async function addSource(btn) {
+    const name = $('[data-source-name]')?.value.trim(), url = $('[data-source-url]')?.value.trim();
+    if (!name || !url) return say('Enter a calendar name and Google iCal link.');
+    const hold = WizardApp.update.hold('adding calendar source');
+    btn.disabled = true; btn.textContent = 'Adding…';
+    try {
+      await post('api/sources', { name, url });
+      await load(false); openCals(); say('Calendar added.', true);
+    } catch (e) { btn.disabled = false; btn.textContent = 'Add calendar'; say(e.message); }
+    finally { hold.release(); }
+  }
+
+  async function removeSource(btn) {
+    const hold = WizardApp.update.hold('removing calendar source');
+    btn.disabled = true;
+    try {
+      await post('api/sources/remove', { id: btn.dataset.removeSource });
+      await load(false); openCals(); say('Calendar removed.', true);
+    } catch (e) { btn.disabled = false; say(e.message); }
+    finally { hold.release(); }
   }
 
   const say = (t, ok) => { const m = $('[data-c-msg]'); if (m) { m.className = `msg ${ok ? 'ok' : 'err'}`; m.textContent = t; } };
@@ -328,6 +352,8 @@
     const t = ev.target.closest('button, [data-sheet-back]');
     if (!t) return;
     if (t.matches('[data-sheet-back], [data-close]')) return closeSheet();
+    if (t.matches('[data-add-source]')) return addSource(t);
+    if (t.dataset.removeSource) return removeSource(t);
     if (t.dataset.vis) return toggleCal(t);
     if (t.dataset.ev) return openSheet(t.dataset.ev);
     if (t.dataset.day) return select(t.dataset.day, true);
@@ -380,9 +406,16 @@
   }, { passive: true });
 
   async function syncNow(btn) {
-    btn.disabled = true; btn.textContent = 'Reloading…';
-    await load(true);
-    if (sheetOpen) openCals();
+    btn.disabled = true; btn.textContent = 'Syncing…';
+    try {
+      const result = await post('api/sync', {});
+      await load(false);
+      if (sheetOpen) {
+        openCals();
+        if (result.syncing) say('A calendar sync is already running.');
+        else say(result.failed ? `${result.failed} calendar failed to sync.` : 'Calendars updated.', !result.failed);
+      }
+    } catch (e) { btn.disabled = false; btn.textContent = 'Sync now'; say(e.message); }
   }
 
   async function load(refresh) {
@@ -397,16 +430,17 @@
       render();
       if (refresh && d.syncing) { await new Promise((ok) => setTimeout(ok, 2500)); return load(false); }
     } catch (err) {
-      $('[data-status]').textContent = 'Unable to load calendar. Open Settings and Reload to retry.';
-      $('[data-foot]').textContent = 'Unable to load calendar. Open Settings and Reload to retry.';
+      $('[data-status]').textContent = 'Unable to load calendar. Open Settings and Sync now to retry.';
+      $('[data-foot]').textContent = 'Unable to load calendar. Open Settings and Sync now to retry.';
+      throw err;
     }
   }
 
   sel = null; view = null;
   applyMode();
   renderTodayBtn();
-  load(false);
+  load(false).catch(() => {});
   setInterval(() => { renderTodayBtn(); if (doc && mode !== 'month') renderTime(); }, 60e3);
   WizardApp.theme.onChange(() => { if (doc) render(); });
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) load(false); });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) load(false).catch(() => {}); });
 })();
