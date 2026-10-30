@@ -410,7 +410,11 @@
     try {
       const result = await post('api/sync', {});
       await load(false);
-      if (sheetOpen) { openCals(); say(result.failed ? `${result.failed} calendar failed to sync.` : 'Calendars updated.', !result.failed); }
+      if (sheetOpen) {
+        openCals();
+        if (result.syncing) say('A calendar sync is already running.');
+        else say(result.failed ? `${result.failed} calendar failed to sync.` : 'Calendars updated.', !result.failed);
+      }
     } catch (e) { btn.disabled = false; btn.textContent = 'Sync now'; say(e.message); }
   }
 

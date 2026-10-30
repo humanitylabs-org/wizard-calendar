@@ -178,6 +178,83 @@ except ValueError as exc:
 else:
     raise AssertionError('mixed date and date-time recurrence was accepted')
 
+mixed_exdate = b'''BEGIN:VCALENDAR\r
+BEGIN:VEVENT\r
+UID:mixed-exdate\r
+DTSTART;VALUE=DATE:20261030\r
+DTEND;VALUE=DATE:20261031\r
+RRULE:FREQ=DAILY;COUNT=2\r
+EXDATE:20261031T120000Z\r
+SUMMARY:Mixed exclusion\r
+END:VEVENT\r
+END:VCALENDAR\r
+'''
+try:
+    ical.parse_ical(mixed_exdate, calendar_id='ical:x', calendar_name='X', timezone='UTC', now='2026-10-30T12:00:00Z')
+except ValueError as exc:
+    check('mixed date and date-time exclusions fail closed', 'EXDATE' in str(exc))
+else:
+    raise AssertionError('mixed date and date-time exclusion was accepted')
+
+mixed_recurrence_id = b'''BEGIN:VCALENDAR\r
+BEGIN:VEVENT\r
+UID:mixed-override\r
+DTSTART;VALUE=DATE:20261030\r
+DTEND;VALUE=DATE:20261031\r
+RRULE:FREQ=DAILY;COUNT=2\r
+SUMMARY:Master\r
+END:VEVENT\r
+BEGIN:VEVENT\r
+UID:mixed-override\r
+RECURRENCE-ID:20261031T120000Z\r
+DTSTART:20261031T130000Z\r
+DTEND:20261031T140000Z\r
+SUMMARY:Override\r
+END:VEVENT\r
+END:VCALENDAR\r
+'''
+try:
+    ical.parse_ical(mixed_recurrence_id, calendar_id='ical:x', calendar_name='X', timezone='UTC', now='2026-10-30T12:00:00Z')
+except ValueError as exc:
+    check('mixed recurrence identifiers fail closed', 'RECURRENCE-ID' in str(exc))
+else:
+    raise AssertionError('mixed recurrence identifier was accepted')
+
+local_until = b'''BEGIN:VCALENDAR\r
+BEGIN:VEVENT\r
+UID:local-until\r
+DTSTART;TZID=America/Vancouver:20261030T090000\r
+DTEND;TZID=America/Vancouver:20261030T100000\r
+RRULE:FREQ=DAILY;UNTIL=20261102T090000\r
+SUMMARY:Local until\r
+END:VEVENT\r
+END:VCALENDAR\r
+'''
+until_events = ical.parse_ical(local_until, calendar_id='ical:x', calendar_name='X', timezone='UTC', now='2026-10-30T12:00:00Z')['events']
+check('floating UNTIL uses DTSTART timezone', len(until_events) == 4 and until_events[-1]['start'].startswith('2026-11-02T09:00:00'))
+
+ancient = b'''BEGIN:VCALENDAR\r
+BEGIN:VEVENT\r
+UID:ancient\r
+DTSTART;VALUE=DATE:19000101\r
+DTEND;VALUE=DATE:19000102\r
+RRULE:FREQ=MONTHLY;BYDAY=MO,TU,WE,TH,FR,SA,SU\r
+SUMMARY:Ancient dense recurrence\r
+END:VEVENT\r
+END:VCALENDAR\r
+'''
+old_steps = getattr(ical, 'MAX_EXPANSION_STEPS')
+setattr(ical, 'MAX_EXPANSION_STEPS', 50)
+try:
+    try:
+        ical.parse_ical(ancient, calendar_id='ical:x', calendar_name='X', timezone='UTC', now='2026-10-30T12:00:00Z')
+    except ValueError as exc:
+        check('recurrence candidate emissions are bounded before materialization', 'recurrence is too large' in str(exc))
+    else:
+        raise AssertionError('dense historical recurrence bypassed the candidate bound')
+finally:
+    setattr(ical, 'MAX_EXPANSION_STEPS', old_steps)
+
 detached = ['BEGIN:VCALENDAR']
 for index in range(3):
     detached.extend([

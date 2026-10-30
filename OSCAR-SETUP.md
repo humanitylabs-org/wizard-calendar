@@ -31,7 +31,9 @@ The app accepts `https://` and `webcal://` links only when they normalize to the
 hostnames, alternate ports, embedded credentials and redirects are rejected. The initial
 feed is fetched and parsed before the source is saved.
 
-Calendar stores the normalized private URL only in `/data/sources.json`, written mode 0600.
+Calendar stores the normalized private URL only in `/data/state.json`, atomically replaced
+with mode 0600 inside a mode 0700 data directory. Source authority and its derived snapshot
+share that one file, so a crash cannot mix generations or restore a removed source.
 The URL is never included in `GET /api/sources`, `GET /api/events`, MCP output, generated
 event IDs or owner-facing errors. Fetches ignore inherited HTTP proxy variables, are limited
 to 8 MiB and 10,000 events, and use a bounded recurrence expansion. Unsupported or malformed
@@ -101,7 +103,8 @@ Calendar does not install a gog scheduler.
 
 The success response contains the source ID, display name, provider and refresh status, but
 never the URL. `GET /api/sources` returns the same redacted projection. `POST /api/sync` with
-`{}` refreshes all sources. `POST /api/sources/remove` accepts `{"id":"ical-..."}`.
+`{}` refreshes all sources. `POST /api/sources/remove` accepts the opaque `id` returned by
+`POST /api/sources` or `GET /api/sources`; callers must not construct or guess it.
 Inspect the readback rather than treating HTTP status alone as proof.
 
 ### Snapshot import
@@ -130,10 +133,11 @@ Invalid input returns 400; untrusted Host/Origin 403; oversize request 413; stor
 
 ## Runtime and data
 
-Data directory: `DATA_DIR` (default `./data`, container `/data`):
-
-- `snapshot.json`: normalized visible calendar state and visibility preferences.
-- `sources.json`: private iCal URLs and source refresh status, mode 0600.
+Data directory: `DATA_DIR` (default `./data`, container `/data`). `state.json` atomically
+contains the normalized snapshot, visibility preferences, private iCal URLs and refresh
+status. It is mode 0600 in a mode 0700 directory. A pre-subscription `snapshot.json` from
+Calendar 0.1.0 is read as the migration baseline and folded into `state.json` on the first
+subsequent write; it never contains a private iCal URL.
 
 Runtime environment:
 

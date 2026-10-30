@@ -31,7 +31,8 @@ function day(offset) {
         let calendar = null;
         let events = [];
         let submitted = null;
-        const sourceId = 'ical-' + crypto.randomUUID().replaceAll('-', '');
+        let syncBusy = false;
+        const sourceId = 'ical:' + crypto.randomUUID().replaceAll('-', '');
         const privateUrl = `https://calendar.google.com/calendar/ical/${crypto.randomUUID()}%40group.calendar.google.com/${crypto.randomUUID()}/basic.ics`;
 
         await page.route('**/api/**', async route => {
@@ -62,7 +63,7 @@ function day(offset) {
             return route.fulfill({json: {ok: true, id: sourceId}});
           }
           if (method === 'POST' && url.pathname.endsWith('/api/sync')) {
-            return route.fulfill({json: {ok: true, syncing: false, synced: source ? 1 : 0, failed: 0}});
+            return route.fulfill({status: syncBusy ? 202 : 200, json: {ok: true, syncing: syncBusy, synced: syncBusy ? 0 : source ? 1 : 0, failed: 0}});
           }
           return route.continue();
         });
@@ -91,6 +92,11 @@ function day(offset) {
         await page.getByRole('button', {name: 'Sync now'}).click();
         await page.waitForFunction(() => document.querySelector('[data-c-msg]')?.textContent === 'Calendars updated.');
         checks.push(`${size.width}/${scheme}: manual sync reads back updated state`);
+        syncBusy = true;
+        await page.getByRole('button', {name: 'Sync now'}).click();
+        await page.waitForFunction(() => document.querySelector('[data-c-msg]')?.textContent === 'A calendar sync is already running.');
+        syncBusy = false;
+        checks.push(`${size.width}/${scheme}: concurrent sync is not reported as completed`);
 
         await page.screenshot({path: path.join(out, `calendar-ical-${size.width}-${scheme}.png`), fullPage: true});
         await page.getByRole('button', {name: 'Remove'}).click();

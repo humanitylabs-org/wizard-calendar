@@ -8,6 +8,7 @@ import json
 import mimetypes
 import os
 import re
+import tempfile
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -44,34 +45,40 @@ def _read_json(path: Path, fallback):
     return json.loads(path.read_text()) if path.exists() else fallback
 
 
-def read():
-    with LOCK:
-        return _read_json(DATA / 'snapshot.json', empty())
-
-
 def _save_path(path: Path, doc):
-    DATA.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + '.tmp')
-    with tmp.open('w') as handle:
-        json.dump(doc, handle)
-        handle.flush()
-        os.fsync(handle.fileno())
-    os.chmod(tmp, 0o600)
-    tmp.replace(path)
+    DATA.mkdir(mode=0o700, parents=True, exist_ok=True)
+    os.chmod(DATA, 0o700)
+    fd, tmp_name = tempfile.mkstemp(prefix=f'.{path.name}.', dir=path.parent)
+    tmp = Path(tmp_name)
+    try:
+        with os.fdopen(fd, 'w') as handle:
+            json.dump(doc, handle)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp, path)
+        directory_flag = getattr(os, 'O_DIRECTORY', 0)
+        directory_fd = os.open(path.parent, os.O_RDONLY | directory_flag)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    except BaseException:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        try:
+            tmp.unlink()
+        except FileNotFoundError:
+            pass
+        raise
 
 
-def save(doc):
-    _save_path(DATA / 'snapshot.json', doc)
-
-
-def _source_doc():
-    doc = _read_json(DATA / 'sources.json', {'schemaVersion': 1, 'sources': []})
-    if not isinstance(doc, dict) or doc.get('schemaVersion') != 1 or not isinstance(doc.get('sources'), list):
-        raise ValueError('Calendar source configuration is invalid')
-    if len(doc['sources']) > MAX_SOURCES:
+def _validate_sources(sources):
+    if not isinstance(sources, list) or len(sources) > MAX_SOURCES:
         raise ValueError('Calendar source configuration is invalid')
     ids = set()
-    for source in doc['sources']:
+    for source in sources:
         if not isinstance(source, dict):
             raise ValueError('Calendar source configuration is invalid')
         required = {'id', 'name', 'url'}
@@ -80,25 +87,48 @@ def _source_doc():
         if source['id'] in ids or source['id'] != ical_feed.source_id(source['url']):
             raise ValueError('Calendar source configuration is invalid')
         ids.add(source['id'])
-    return doc
+    return sources
 
 
-def _save_sources(doc):
-    _save_path(DATA / 'sources.json', doc)
+def _load_state():
+    state_path = DATA / 'state.json'
+    if state_path.exists():
+        state = _read_json(state_path, None)
+    else:
+        state = {
+            'schemaVersion': 1,
+            'snapshot': _read_json(DATA / 'snapshot.json', empty()),
+            'sources': [],
+        }
+    if (
+        not isinstance(state, dict)
+        or state.get('schemaVersion') != 1
+        or not isinstance(state.get('snapshot'), dict)
+    ):
+        raise ValueError('Calendar state is invalid')
+    _validate_sources(state.get('sources'))
+    return state
+
+
+def read():
+    with LOCK:
+        return _load_state()['snapshot']
+
+
+def _source_doc():
+    with LOCK:
+        return {'schemaVersion': 1, 'sources': _load_state()['sources']}
 
 
 def _commit_snapshot_and_sources(snapshot, sources):
-    """Commit derived events and source authority together, rolling back on write failure."""
-    previous = read()
-    save(snapshot)
-    try:
-        _save_sources(sources)
-    except OSError:
-        try:
-            save(previous)
-        except OSError as rollback_error:
-            raise OSError('Calendar state recovery failed') from rollback_error
-        raise
+    """Commit source authority and its derived snapshot with one atomic replacement."""
+    source_rows = sources['sources'] if isinstance(sources, dict) else sources
+    _validate_sources(source_rows)
+    _save_path(DATA / 'state.json', {
+        'schemaVersion': 1,
+        'snapshot': snapshot,
+        'sources': source_rows,
+    })
 
 
 def text(value, name, limit=300, required=False):
@@ -291,7 +321,7 @@ def sync_ical_sources(*, fetcher=None, now=None):
                     current = next((item for item in sources['sources'] if item['id'] == source_id), None)
                     if current is not None:
                         current['error'] = message
-                        _save_sources(sources)
+                        _commit_snapshot_and_sources(read(), sources)
                 SYNC_STATE['lastError'] = message
                 failed += 1
         return {'ok': failed == 0, 'syncing': False, 'synced': synced, 'failed': failed}
@@ -417,16 +447,18 @@ class Handler(BaseHTTPRequestHandler):
                 result = sync_ical_sources()
                 return self.respond(result, 200 if not result.get('syncing') else 202)
             with LOCK:
+                state = _load_state()
+                sources = {'schemaVersion': 1, 'sources': state['sources']}
                 if path == '/api/import':
                     normalized = validate(body)
-                    previous = read()
+                    previous = state['snapshot']
                     digest = hashlib.sha256(json.dumps(normalized, sort_keys=True).encode()).hexdigest()
                     changed = digest != previous.get('contentSha256')
                     if changed:
                         normalized.update(contentSha256=digest, syncedAt=dt.datetime.now(dt.timezone.utc).isoformat(), hidden=[calendar_id for calendar_id in previous.get('hidden', []) if calendar_id in {item['id'] for item in normalized['calendars']}])
-                        save(normalized)
+                        _commit_snapshot_and_sources(normalized, sources)
                     return self.respond({'ok': True, 'changed': changed, 'events': len(normalized['events']), 'contentSha256': digest})
-                doc = read()
+                doc = state['snapshot']
                 calendar_id = body.get('id')
                 if calendar_id not in {cal['id'] for cal in doc['calendars']} or not isinstance(body.get('visible'), bool):
                     raise ValueError('known calendar id and boolean visible are required')
@@ -436,7 +468,7 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     hidden.add(calendar_id)
                 doc['hidden'] = sorted(hidden)
-                save(doc)
+                _commit_snapshot_and_sources(doc, sources)
                 return self.respond({'ok': True, 'hidden': doc['hidden']})
         except (ValueError, TypeError, KeyError) as exc:
             return self.respond({'error': str(exc)[:300]}, 400)

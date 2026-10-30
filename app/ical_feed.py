@@ -10,6 +10,7 @@ from __future__ import annotations
 import calendar
 import datetime as dt
 import hashlib
+import itertools
 import re
 import urllib.error
 import urllib.request
@@ -159,7 +160,7 @@ def _zone(name: str) -> ZoneInfo:
         raise ValueError('Google iCal uses an unknown timezone') from exc
 
 
-def _temporal(value: str, params: dict[str, str], default_zone: ZoneInfo):
+def _temporal(value: str, params: dict[str, str], default_zone: dt.tzinfo):
     value = value.strip()
     if params.get('VALUE', '').upper() == 'DATE' or re.fullmatch(r'\d{8}', value):
         try:
@@ -191,6 +192,14 @@ def _parse_now(value, zone: ZoneInfo) -> dt.datetime:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=zone)
     return parsed.astimezone(dt.timezone.utc)
+
+
+def _parse_until(value: str, start: Temporal, default_zone: ZoneInfo) -> Temporal:
+    zone = start.tzinfo if isinstance(start, dt.datetime) and start.tzinfo is not None else default_zone
+    until = _temporal(value, {}, zone)
+    if isinstance(until, dt.datetime) != isinstance(start, dt.datetime):
+        raise ValueError('Google iCal RRULE UNTIL must match the event date type')
+    return until
 
 
 def _rrule(value: str) -> dict[str, str]:
@@ -308,7 +317,7 @@ def _recurrences(start, raw_rule: str, default_zone: ZoneInfo, horizon: dt.datet
     interval = _ints(rule.get('INTERVAL', '1'), 1, 10_000)[0]
     count = _ints(rule.get('COUNT'), 1, 1_000_000)
     limit = count[0] if count else None
-    until = _temporal(rule['UNTIL'], {}, default_zone) if rule.get('UNTIL') else None
+    until = _parse_until(rule['UNTIL'], start, default_zone) if rule.get('UNTIL') else None
     bymonth = _ints(rule.get('BYMONTH'), 1, 12)
     bymonthday = _ints(rule.get('BYMONTHDAY'), -31, 31, nonzero=True)
     byday = _bydays(rule.get('BYDAY'))
@@ -335,6 +344,8 @@ def _recurrences(start, raw_rule: str, default_zone: ZoneInfo, horizon: dt.datet
             if not _until_allows(candidate, until):
                 return False
             yielded += 1
+            if yielded > MAX_EXPANSION_STEPS:
+                raise ValueError('Google iCal recurrence is too large')
             if limit is not None and yielded > limit:
                 return False
             yield candidate
@@ -452,6 +463,8 @@ def _events(payload: bytes, default_zone: ZoneInfo) -> list[_Event]:
             if start is not None:
                 if end is None or isinstance(start, dt.datetime) != isinstance(end, dt.datetime) or end <= start:
                     raise ValueError('Google iCal event has an invalid end')
+            if recurrence_id is not None and start is not None and isinstance(recurrence_id, dt.datetime) != isinstance(start, dt.datetime):
+                raise ValueError('Google iCal RECURRENCE-ID must match the event date type')
             rdates = []
             for params, value in props.get('RDATE', []):
                 rdates.extend(_temporal(item, params, default_zone) for item in value.split(','))
@@ -459,7 +472,11 @@ def _events(payload: bytes, default_zone: ZoneInfo) -> list[_Event]:
                 raise ValueError('Google iCal RDATE must match the event date type')
             exdates = set()
             for params, value in props.get('EXDATE', []):
-                exdates.update(_occ_key(_temporal(item, params, default_zone)) for item in value.split(','))
+                for item in value.split(','):
+                    exclusion = _temporal(item, params, default_zone)
+                    if start is not None and isinstance(exclusion, dt.datetime) != isinstance(start, dt.datetime):
+                        raise ValueError('Google iCal EXDATE must match the event date type')
+                    exdates.add(_occ_key(exclusion))
             description = _text(props.get('DESCRIPTION', [({}, '')])[0][1])[:4000]
             meet_match = re.search(r'https://meet\.google\.com/[a-z0-9-]+', description, re.I)
             records.append(_Event(
@@ -532,6 +549,13 @@ def parse_ical(
             overrides.setdefault(event.uid, {})[_occ_key(event.recurrence_id)] = event
         else:
             masters.append(event)
+    master_starts = {event.uid: event.start for event in masters if event.start is not None}
+    for uid, rows in overrides.items():
+        master_start = master_starts.get(uid)
+        if master_start is None:
+            continue
+        if any(isinstance(event.recurrence_id, dt.datetime) != isinstance(master_start, dt.datetime) for event in rows.values()):
+            raise ValueError('Google iCal RECURRENCE-ID must match the master event date type')
 
     output, used_overrides = [], set()
     for event in masters:
@@ -545,12 +569,10 @@ def parse_ical(
             if event.end is None or isinstance(event.end, dt.datetime):
                 raise ValueError('Google iCal event has an invalid end')
             duration = event.end - event.start
-        occurrences = [event.start]
-        if event.rrule:
-            occurrences = list(_recurrences(event.start, event.rrule, zone, window_end))
-        occurrences.extend(event.rdates)
+        recurrence_rows = _recurrences(event.start, event.rrule, zone, window_end) if event.rrule else iter((event.start,))
+        occurrences = itertools.chain(recurrence_rows, event.rdates)
         seen = set()
-        for original_start in sorted(occurrences, key=_occ_key):
+        for original_start in occurrences:
             key = _occ_key(original_start)
             if key in seen:
                 continue
