@@ -3,13 +3,13 @@
   "id": "wizard-calendar",
   "wizard_type": "view",
   "available": true,
-  "short_desc": "Empty calendar viewer with explicit snapshot import.",
+  "short_desc": "Read-only calendars from private Google iCal links.",
   "author": "Humanity Labs",
   "port": 8799,
   "categories": [
     "utilities"
   ],
-  "description": "Private test release. Provider connector setup required; see OSCAR-SETUP.md.",
+  "description": "Private read-only calendar viewer with Google iCal subscriptions and snapshot import.",
   "tipi_version": 1,
   "version": "0.1.0",
   "source": "https://github.com/humanitylabs-org/wizard-calendar",

@@ -9,31 +9,19 @@
       "get": {
         "summary": "Service identity and setup status",
         "responses": {
-          "200": {
-            "description": "Success"
-          },
-          "400": {
-            "description": "Invalid input"
-          },
-          "403": {
-            "description": "Untrusted Host or Origin"
-          }
+          "200": { "description": "Success" },
+          "400": { "description": "Invalid input" },
+          "403": { "description": "Untrusted Host or Origin" }
         }
       }
     },
     "/api/events": {
       "get": {
-        "summary": "Visible snapshot; no network calls",
+        "summary": "Visible read-only snapshot; no network calls",
         "responses": {
-          "200": {
-            "description": "Success"
-          },
-          "400": {
-            "description": "Invalid input"
-          },
-          "403": {
-            "description": "Untrusted Host or Origin"
-          }
+          "200": { "description": "Success" },
+          "400": { "description": "Invalid input" },
+          "403": { "description": "Untrusted Host or Origin" }
         }
       }
     },
@@ -41,15 +29,9 @@
       "get": {
         "summary": "Complete saved snapshot including hidden calendars",
         "responses": {
-          "200": {
-            "description": "Success"
-          },
-          "400": {
-            "description": "Invalid input"
-          },
-          "403": {
-            "description": "Untrusted Host or Origin"
-          }
+          "200": { "description": "Success" },
+          "400": { "description": "Invalid input" },
+          "403": { "description": "Untrusted Host or Origin" }
         }
       }
     },
@@ -57,15 +39,9 @@
       "post": {
         "summary": "Atomically replace snapshot; see OSCAR-SETUP.md for schema and limits",
         "responses": {
-          "200": {
-            "description": "Success"
-          },
-          "400": {
-            "description": "Invalid input"
-          },
-          "403": {
-            "description": "Untrusted Host or Origin"
-          }
+          "200": { "description": "Success" },
+          "400": { "description": "Invalid input" },
+          "403": { "description": "Untrusted Host or Origin" }
         }
       }
     },
@@ -73,15 +49,81 @@
       "post": {
         "summary": "Set visible boolean for a known calendar id",
         "responses": {
-          "200": {
-            "description": "Success"
-          },
-          "400": {
-            "description": "Invalid input"
-          },
-          "403": {
-            "description": "Untrusted Host or Origin"
+          "200": { "description": "Success" },
+          "400": { "description": "Invalid input" },
+          "403": { "description": "Untrusted Host or Origin" }
+        }
+      }
+    },
+    "/api/sources": {
+      "get": {
+        "summary": "List saved iCal sources without their private URLs",
+        "responses": {
+          "200": { "description": "Redacted source list" },
+          "403": { "description": "Untrusted Host or Origin" }
+        }
+      },
+      "post": {
+        "summary": "Add and immediately fetch a private Google iCal source",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["name", "url"],
+                "additionalProperties": false,
+                "properties": {
+                  "name": { "type": "string", "minLength": 1, "maxLength": 300 },
+                  "url": { "type": "string", "description": "Private https:// or webcal:// calendar.google.com iCal URL" }
+                }
+              }
+            }
           }
+        },
+        "responses": {
+          "200": { "description": "Source saved and its events committed" },
+          "400": { "description": "Invalid link, feed, or input" },
+          "403": { "description": "Untrusted Host or Origin" },
+          "413": { "description": "Request body too large" },
+          "500": { "description": "Storage failure; previous snapshot retained" }
+        }
+      }
+    },
+    "/api/sources/remove": {
+      "post": {
+        "summary": "Remove one iCal source and its imported events",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["id"],
+                "additionalProperties": false,
+                "properties": {
+                  "id": { "type": "string", "minLength": 1, "maxLength": 300 }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Source removed" },
+          "400": { "description": "Unknown source id" },
+          "403": { "description": "Untrusted Host or Origin" },
+          "500": { "description": "Storage failure; previous snapshot retained" }
+        }
+      }
+    },
+    "/api/sync": {
+      "post": {
+        "summary": "Refresh all saved iCal sources and retain last-good events on failure",
+        "responses": {
+          "200": { "description": "Refresh completed" },
+          "202": { "description": "A refresh is already running" },
+          "400": { "description": "Invalid input" },
+          "403": { "description": "Untrusted Host or Origin" }
         }
       }
     },
@@ -89,15 +131,9 @@
       "post": {
         "summary": "Stateless JSON-RPC MCP initialize, tools/list and calendar_events",
         "responses": {
-          "200": {
-            "description": "Success"
-          },
-          "400": {
-            "description": "Invalid input"
-          },
-          "403": {
-            "description": "Untrusted Host or Origin"
-          }
+          "200": { "description": "Success" },
+          "400": { "description": "Invalid input" },
+          "403": { "description": "Untrusted Host or Origin" }
         }
       }
     }

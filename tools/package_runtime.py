@@ -13,6 +13,7 @@ compose = {'services': {'wizard-calendar': {
     'mem_limit': '256m', 'tmpfs': ['/tmp'], 'read_only': True,
     'environment': {'BIND': '0.0.0.0', 'PORT': '8799', 'DATA_DIR': '/data',
         'PYTHONDONTWRITEBYTECODE': '1', 'CALENDAR_TIMEZONE': '${CALENDAR_TIMEZONE:-UTC}',
+        'ICAL_SYNC_INTERVAL': '${ICAL_SYNC_INTERVAL:-900}',
         'WIZARD_TRUSTED_HOSTS': '${WIZARD_TRUSTED_HOSTS:-}',
         'WIZARD_TRUSTED_ORIGINS': '${WIZARD_TRUSTED_ORIGINS:-}',
         'WIZARD_LOCAL_HOSTS': '127.0.0.1:${APP_PORT},localhost:${APP_PORT},wizard-calendar:8799'},
