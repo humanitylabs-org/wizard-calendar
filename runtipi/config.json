@@ -1,7 +1,7 @@
 {
   "name": "Calendar",
   "id": "wizard-calendar",
-  "wizard_type": "service",
+  "wizard_type": "view",
   "available": true,
   "short_desc": "Empty calendar viewer with explicit snapshot import.",
   "author": "Humanity Labs",
