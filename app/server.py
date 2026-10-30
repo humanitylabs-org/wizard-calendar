@@ -260,6 +260,8 @@ def add_ical_source(name, url, *, fetcher=None, now=None):
         sources = _source_doc()
         if any(item['id'] == source_id for item in sources['sources']):
             raise ValueError('That Google iCal link is already added')
+        if len(sources['sources']) >= MAX_SOURCES:
+            raise ValueError('Calendar supports up to 20 iCal links')
         previous = read()
         updated = _replace_source_snapshot(previous, source, parsed, timestamp)
         sources['sources'].append(source)

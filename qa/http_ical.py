@@ -89,8 +89,28 @@ END:VCALENDAR\r
         assert events['events'][0]['title'] == 'Updated title'
         checks.append('manual sync replaces source events')
 
+        current['payload'] = feed('Second initial')
+        second_private_url = 'https://calendar.google.com/calendar/ical/second%40group.calendar.google.com/second-opaque/basic.ics'
+        status, second_added = request('POST', '/api/sources', {'name': 'Work', 'url': second_private_url})
+        assert status == 200 and second_added['ok'] is True
+        second_source_id = second_added['source']['id']
+
+        malformed = feed('Broken').replace(b'SUMMARY:', b'RRULE:FREQ=DAILY;INTERVAL=\r\nSUMMARY:')
+        server.ical_feed.fetch_google_ical = lambda url: malformed if 'opaque-id' in url else feed('Second updated')
+        status, partial = request('POST', '/api/sync', {})
+        assert status == 200 and partial['synced'] == 1 and partial['failed'] == 1
+        status, events = request('GET', '/api/events')
+        assert status == 200 and {event['title'] for event in events['events']} == {'Updated title', 'Second updated'}
+        status, sources = request('GET', '/api/sources')
+        assert status == 200 and len(sources['sources']) == 2
+        assert 'invalid RRULE' in sources['sources'][0]['error'] and sources['sources'][1]['error'] == ''
+        assert 'opaque-id' not in json.dumps(partial) and 'opaque-id' not in json.dumps(sources)
+        checks.append('malformed RRULE retains last-good data and does not stop later sources')
+
         status, removed = request('POST', '/api/sources/remove', {'id': source_id})
         assert status == 200 and removed == {'ok': True, 'id': source_id}
+        status, removed = request('POST', '/api/sources/remove', {'id': second_source_id})
+        assert status == 200 and removed == {'ok': True, 'id': second_source_id}
         status, events = request('GET', '/api/events')
         assert events['events'] == [] and events['connected'] == []
         checks.append('remove deletes source and its events')

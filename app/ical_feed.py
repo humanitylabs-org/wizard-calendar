@@ -10,6 +10,7 @@ from __future__ import annotations
 import calendar
 import datetime as dt
 import hashlib
+import io
 import itertools
 import re
 import urllib.error
@@ -21,6 +22,9 @@ from zoneinfo import ZoneInfo
 MAX_FEED_BYTES = 8 * 1024 * 1024
 MAX_EVENTS = 10_000
 MAX_EXPANSION_STEPS = 100_000
+MAX_EVENT_RECORDS = 20_000
+MAX_DATE_VALUES = 100_000
+MAX_ICAL_LINES = 200_000
 _ALLOWED_HOST = 'calendar.google.com'
 _WEEKDAY = {'MO': 0, 'TU': 1, 'WE': 2, 'TH': 3, 'FR': 4, 'SA': 5, 'SU': 6}
 Temporal = dt.date | dt.datetime
@@ -82,7 +86,7 @@ def fetch_google_ical(url: str, *, timeout: int = 15, opener=None) -> bytes:
     return body
 
 
-def _unfold(payload: bytes) -> list[str]:
+def _unfold(payload: bytes):
     if len(payload) > MAX_FEED_BYTES:
         raise ValueError('Google iCal feed exceeds 8 MiB')
     try:
@@ -91,13 +95,33 @@ def _unfold(payload: bytes) -> list[str]:
         raise ValueError('Google iCal feed must be UTF-8') from exc
     if '\x00' in text:
         raise ValueError('Google iCal feed contains invalid bytes')
-    out: list[str] = []
-    for line in text.replace('\r\n', '\n').replace('\r', '\n').split('\n'):
-        if line[:1] in (' ', '\t') and out:
-            out[-1] += line[1:]
-        else:
-            out.append(line)
-    return out
+    previous = None
+    lines = 0
+    for raw in io.StringIO(text.replace('\r\n', '\n').replace('\r', '\n')):
+        lines += 1
+        if lines > MAX_ICAL_LINES:
+            raise ValueError('Google iCal feed has too many lines')
+        line = raw.rstrip('\n')
+        if line[:1] in (' ', '\t') and previous is not None:
+            previous += line[1:]
+            continue
+        if previous is not None:
+            yield previous
+        previous = line
+    if previous is not None:
+        yield previous
+
+
+def _comma_values(value: str):
+    """Yield comma-separated values without materializing an attacker-sized list."""
+    start = 0
+    while True:
+        end = value.find(',', start)
+        if end < 0:
+            yield value[start:]
+            return
+        yield value[start:end]
+        start = end + 1
 
 
 def _parts(left: str) -> list[str]:
@@ -209,7 +233,7 @@ def _rrule(value: str) -> dict[str, str]:
             raise ValueError('Google iCal contains an invalid RRULE')
         key, val = item.split('=', 1)
         key = key.upper()
-        if key in rule:
+        if not key or not val or key in rule:
             raise ValueError('Google iCal contains an invalid RRULE')
         rule[key] = val.upper()
     allowed = {'FREQ', 'UNTIL', 'COUNT', 'INTERVAL', 'BYDAY', 'BYMONTHDAY', 'BYMONTH', 'BYSETPOS', 'WKST'}
@@ -314,8 +338,11 @@ def _until_allows(candidate, until) -> bool:
 
 def _recurrences(start, raw_rule: str, default_zone: ZoneInfo, horizon: dt.datetime):
     rule = _rrule(raw_rule)
-    interval = _ints(rule.get('INTERVAL', '1'), 1, 10_000)[0]
+    interval_rows = _ints(rule.get('INTERVAL', '1'), 1, 10_000)
     count = _ints(rule.get('COUNT'), 1, 1_000_000)
+    if len(interval_rows) != 1 or len(count) > 1:
+        raise ValueError('Google iCal contains an invalid RRULE number')
+    interval = interval_rows[0]
     limit = count[0] if count else None
     until = _parse_until(rule['UNTIL'], start, default_zone) if rule.get('UNTIL') else None
     bymonth = _ints(rule.get('BYMONTH'), 1, 12)
@@ -436,6 +463,7 @@ class _Event:
 
 def _events(payload: bytes, default_zone: ZoneInfo) -> list[_Event]:
     records, current = [], None
+    date_values = 0
     for line in _unfold(payload):
         upper = line.upper()
         if upper == 'BEGIN:VEVENT':
@@ -446,6 +474,8 @@ def _events(payload: bytes, default_zone: ZoneInfo) -> list[_Event]:
         if upper == 'END:VEVENT':
             if current is None:
                 raise ValueError('Google iCal contains an unmatched event end')
+            if len(records) >= MAX_EVENT_RECORDS:
+                raise ValueError('Google iCal feed has too many event records')
             props = {}
             for name, params, value in current:
                 props.setdefault(name, []).append((params, value))
@@ -467,12 +497,19 @@ def _events(payload: bytes, default_zone: ZoneInfo) -> list[_Event]:
                 raise ValueError('Google iCal RECURRENCE-ID must match the event date type')
             rdates = []
             for params, value in props.get('RDATE', []):
-                rdates.extend(_temporal(item, params, default_zone) for item in value.split(','))
+                for item in _comma_values(value):
+                    date_values += 1
+                    if date_values > MAX_DATE_VALUES:
+                        raise ValueError('Google iCal feed has too many recurrence dates')
+                    rdates.append(_temporal(item, params, default_zone))
             if start is not None and any(isinstance(item, dt.datetime) != isinstance(start, dt.datetime) for item in rdates):
                 raise ValueError('Google iCal RDATE must match the event date type')
             exdates = set()
             for params, value in props.get('EXDATE', []):
-                for item in value.split(','):
+                for item in _comma_values(value):
+                    date_values += 1
+                    if date_values > MAX_DATE_VALUES:
+                        raise ValueError('Google iCal feed has too many recurrence dates')
                     exclusion = _temporal(item, params, default_zone)
                     if start is not None and isinstance(exclusion, dt.datetime) != isinstance(start, dt.datetime):
                         raise ValueError('Google iCal EXDATE must match the event date type')
@@ -527,7 +564,7 @@ def _render(event: _Event, start, end, calendar_id: str, occurrence_key: str):
     }
 
 
-def parse_ical(
+def _parse_ical(
     payload: bytes,
     *,
     calendar_id: str,
@@ -558,6 +595,7 @@ def parse_ical(
             raise ValueError('Google iCal RECURRENCE-ID must match the master event date type')
 
     output, used_overrides = [], set()
+    candidate_count = 0
     for event in masters:
         if event.status == 'CANCELLED' or event.start is None:
             continue
@@ -573,6 +611,9 @@ def parse_ical(
         occurrences = itertools.chain(recurrence_rows, event.rdates)
         seen = set()
         for original_start in occurrences:
+            candidate_count += 1
+            if candidate_count > MAX_EXPANSION_STEPS:
+                raise ValueError('Google iCal recurrence is too large')
             key = _occ_key(original_start)
             if key in seen:
                 continue
@@ -611,3 +652,30 @@ def parse_ical(
         'calendars': [{'id': calendar_id, 'name': calendar_name}],
         'events': output,
     }
+
+
+def parse_ical(
+    payload: bytes,
+    *,
+    calendar_id: str,
+    calendar_name: str,
+    timezone: str = 'UTC',
+    now=None,
+    past_days: int = 60,
+    future_days: int = 400,
+):
+    """Parse an untrusted feed and normalize parser failures to secret-free errors."""
+    try:
+        return _parse_ical(
+            payload,
+            calendar_id=calendar_id,
+            calendar_name=calendar_name,
+            timezone=timezone,
+            now=now,
+            past_days=past_days,
+            future_days=future_days,
+        )
+    except ValueError:
+        raise
+    except (IndexError, OverflowError, TypeError, UnicodeError) as exc:
+        raise ValueError('Google iCal feed could not be parsed') from exc

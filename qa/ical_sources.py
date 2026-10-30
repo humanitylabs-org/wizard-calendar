@@ -75,6 +75,32 @@ check('failure status is useful but secret-free', 'synthetic provider failure' i
 result = server.sync_ical_sources(fetcher=lambda _url: FEED_TWO, now='2026-10-31T12:00:00Z')
 check('successful refresh replaces only source events', result['synced'] == 1 and [event['title'] for event in server.read()['events']] == ['Updated event'])
 
+race_injected_url = 'https://calendar.google.com/calendar/ical/race-injected%40group.calendar.google.com/race-injected/basic.ics'
+race_outer_url = 'https://calendar.google.com/calendar/ical/race-outer%40group.calendar.google.com/race-outer/basic.ics'
+old_max_sources = getattr(server, 'MAX_SOURCES')
+setattr(server, 'MAX_SOURCES', 2)
+race = {'injected': False, 'id': None}
+
+
+def racing_fetcher(_url):
+    if not race['injected']:
+        race['injected'] = True
+        added = server.add_ical_source('Concurrent winner', race_injected_url, fetcher=lambda _inner_url: FEED_ONE, now='2026-10-31T12:00:00Z')
+        race['id'] = added['id']
+    return FEED_ONE
+try:
+    try:
+        server.add_ical_source('Concurrent loser', race_outer_url, fetcher=racing_fetcher, now='2026-10-31T12:00:00Z')
+    except ValueError as exc:
+        check('source limit is rechecked at the commit boundary', 'up to 20 iCal links' in str(exc))
+    else:
+        raise AssertionError('concurrent add exceeded the source limit')
+    check('rejected concurrent source is never persisted', len(server.ical_sources_public()) == 2 and 'race-outer' not in (DATA / 'state.json').read_text())
+finally:
+    setattr(server, 'MAX_SOURCES', old_max_sources)
+    if race['id'] is not None:
+        server.remove_ical_source(race['id'])
+
 before_snapshot = server.read()
 before_sources = server.ical_sources_public()
 replace = server.os.replace

@@ -161,6 +161,31 @@ except ValueError as exc:
 else:
     raise AssertionError('unsupported recurrence was silently accepted')
 
+malformed_interval = b'''BEGIN:VCALENDAR\r
+BEGIN:VEVENT\r
+UID:bad-interval\r
+DTSTART;VALUE=DATE:20261030\r
+DTEND;VALUE=DATE:20261031\r
+RRULE:FREQ=DAILY;INTERVAL=\r
+SUMMARY:Malformed interval\r
+END:VEVENT\r
+END:VCALENDAR\r
+'''
+try:
+    ical.parse_ical(malformed_interval, calendar_id='ical:x', calendar_name='X', timezone='UTC', now='2026-10-30T12:00:00Z')
+except ValueError as exc:
+    check('empty RRULE singleton fails as a parser error', 'invalid RRULE' in str(exc))
+else:
+    raise AssertionError('empty RRULE interval was accepted')
+
+multi_count = malformed_interval.replace(b'INTERVAL=', b'COUNT=1,2')
+try:
+    ical.parse_ical(multi_count, calendar_id='ical:x', calendar_name='X', timezone='UTC', now='2026-10-30T12:00:00Z')
+except ValueError as exc:
+    check('multi-value RRULE singleton fails closed', 'RRULE number' in str(exc))
+else:
+    raise AssertionError('multi-value RRULE count was accepted')
+
 mixed_rdate = b'''BEGIN:VCALENDAR\r
 BEGIN:VEVENT\r
 UID:mixed-rdate\r
@@ -254,6 +279,79 @@ try:
         raise AssertionError('dense historical recurrence bypassed the candidate bound')
 finally:
     setattr(ical, 'MAX_EXPANSION_STEPS', old_steps)
+
+rdate_quota = b'''BEGIN:VCALENDAR\r
+BEGIN:VEVENT\r
+UID:rdate-quota\r
+DTSTART;VALUE=DATE:20261030\r
+DTEND;VALUE=DATE:20261031\r
+RDATE;VALUE=DATE:20261101,20261102,20261103\r
+SUMMARY:RDATE quota\r
+END:VEVENT\r
+END:VCALENDAR\r
+'''
+exdate_quota = rdate_quota.replace(b'RDATE;VALUE=DATE:', b'EXDATE;VALUE=DATE:')
+old_dates = getattr(ical, 'MAX_DATE_VALUES')
+setattr(ical, 'MAX_DATE_VALUES', 2)
+try:
+    for label, payload in [('RDATE', rdate_quota), ('EXDATE', exdate_quota)]:
+        try:
+            ical.parse_ical(payload, calendar_id='ical:x', calendar_name='X', timezone='UTC', now='2026-10-30T12:00:00Z')
+        except ValueError as exc:
+            check(f'oversized {label} collections fail before materialization', 'too many recurrence dates' in str(exc))
+        else:
+            raise AssertionError(f'oversized {label} collection was accepted')
+finally:
+    setattr(ical, 'MAX_DATE_VALUES', old_dates)
+
+old_steps = getattr(ical, 'MAX_EXPANSION_STEPS')
+setattr(ical, 'MAX_EXPANSION_STEPS', 1)
+try:
+    try:
+        ical.parse_ical(rdate_quota.replace(b',20261102,20261103', b''), calendar_id='ical:x', calendar_name='X', timezone='UTC', now='2026-10-30T12:00:00Z')
+    except ValueError as exc:
+        check('RDATE candidates share the recurrence expansion budget', 'recurrence is too large' in str(exc))
+    else:
+        raise AssertionError('RDATE candidates bypassed the recurrence budget')
+finally:
+    setattr(ical, 'MAX_EXPANSION_STEPS', old_steps)
+
+record_quota = b'''BEGIN:VCALENDAR\r
+BEGIN:VEVENT\r
+UID:record-1\r
+DTSTART;VALUE=DATE:20261030\r
+DTEND;VALUE=DATE:20261031\r
+END:VEVENT\r
+BEGIN:VEVENT\r
+UID:record-2\r
+DTSTART;VALUE=DATE:20261031\r
+DTEND;VALUE=DATE:20261101\r
+END:VEVENT\r
+END:VCALENDAR\r
+'''
+old_records = getattr(ical, 'MAX_EVENT_RECORDS')
+setattr(ical, 'MAX_EVENT_RECORDS', 1)
+try:
+    try:
+        ical.parse_ical(record_quota, calendar_id='ical:x', calendar_name='X', timezone='UTC', now='2026-10-30T12:00:00Z')
+    except ValueError as exc:
+        check('VEVENT records have an independent parser bound', 'too many event records' in str(exc))
+    else:
+        raise AssertionError('VEVENT record limit was bypassed')
+finally:
+    setattr(ical, 'MAX_EVENT_RECORDS', old_records)
+
+old_lines = getattr(ical, 'MAX_ICAL_LINES')
+setattr(ical, 'MAX_ICAL_LINES', 2)
+try:
+    try:
+        ical.parse_ical(record_quota, calendar_id='ical:x', calendar_name='X', timezone='UTC', now='2026-10-30T12:00:00Z')
+    except ValueError as exc:
+        check('unfolded feed lines are streamed under a hard bound', 'too many lines' in str(exc))
+    else:
+        raise AssertionError('iCal line limit was bypassed')
+finally:
+    setattr(ical, 'MAX_ICAL_LINES', old_lines)
 
 detached = ['BEGIN:VCALENDAR']
 for index in range(3):
