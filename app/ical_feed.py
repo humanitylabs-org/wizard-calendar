@@ -25,6 +25,12 @@ MAX_EXPANSION_STEPS = 100_000
 MAX_EVENT_RECORDS = 20_000
 MAX_DATE_VALUES = 100_000
 MAX_ICAL_LINES = 200_000
+MAX_UNFOLDED_LINE_CHARS = 65_536
+MAX_RRULE_CHARS = 16_384
+MAX_RRULE_PARTS = 16
+MAX_BYDAY_VALUES = 64
+MAX_BYSETPOS_VALUES = 32
+MAX_PROPERTY_PREFIX_CHARS = 4_096
 _ALLOWED_HOST = 'calendar.google.com'
 _WEEKDAY = {'MO': 0, 'TU': 1, 'WE': 2, 'TH': 3, 'FR': 4, 'SA': 5, 'SU': 6}
 Temporal = dt.date | dt.datetime
@@ -102,7 +108,11 @@ def _unfold(payload: bytes):
         if lines > MAX_ICAL_LINES:
             raise ValueError('Google iCal feed has too many lines')
         line = raw.rstrip('\n')
+        if len(line) > MAX_UNFOLDED_LINE_CHARS:
+            raise ValueError('Google iCal line is too long')
         if line[:1] in (' ', '\t') and previous is not None:
+            if len(previous) + len(line) - 1 > MAX_UNFOLDED_LINE_CHARS:
+                raise ValueError('Google iCal unfolded line is too long')
             previous += line[1:]
             continue
         if previous is not None:
@@ -112,16 +122,20 @@ def _unfold(payload: bytes):
         yield previous
 
 
-def _comma_values(value: str):
-    """Yield comma-separated values without materializing an attacker-sized list."""
+def _separated_values(value: str, separator: str):
+    """Yield separated values without materializing an attacker-sized list."""
     start = 0
     while True:
-        end = value.find(',', start)
+        end = value.find(separator, start)
         if end < 0:
             yield value[start:]
             return
         yield value[start:end]
         start = end + 1
+
+
+def _comma_values(value: str):
+    return _separated_values(value, ',')
 
 
 def _parts(left: str) -> list[str]:
@@ -143,6 +157,8 @@ def _property(line: str):
     if ':' not in line:
         raise ValueError('Google iCal contains a malformed property')
     left, value = line.split(':', 1)
+    if len(left) > MAX_PROPERTY_PREFIX_CHARS:
+        raise ValueError('Google iCal property metadata is too long')
     bits = _parts(left)
     name = bits[0].upper()
     params = {}
@@ -227,8 +243,14 @@ def _parse_until(value: str, start: Temporal, default_zone: ZoneInfo) -> Tempora
 
 
 def _rrule(value: str) -> dict[str, str]:
+    if len(value) > MAX_RRULE_CHARS:
+        raise ValueError('Google iCal RRULE is too long')
     rule = {}
-    for item in value.split(';'):
+    parts = 0
+    for item in _separated_values(value, ';'):
+        parts += 1
+        if parts > MAX_RRULE_PARTS:
+            raise ValueError('Google iCal RRULE has too many parts')
         if '=' not in item:
             raise ValueError('Google iCal contains an invalid RRULE')
         key, val = item.split('=', 1)
@@ -243,15 +265,25 @@ def _rrule(value: str) -> dict[str, str]:
     return rule
 
 
-def _ints(value: str | None, minimum: int, maximum: int, *, nonzero=False) -> list[int]:
+def _ints(value: str | None, minimum: int, maximum: int, *, nonzero=False, max_items=64) -> list[int]:
     if not value:
         return []
-    try:
-        result = [int(item) for item in value.split(',')]
-    except ValueError as exc:
-        raise ValueError('Google iCal contains an invalid RRULE number') from exc
-    if any(item < minimum or item > maximum or (nonzero and item == 0) for item in result):
-        raise ValueError('Google iCal contains an out-of-range RRULE number')
+    result = []
+    seen = set()
+    items = 0
+    for raw in _comma_values(value):
+        items += 1
+        if items > max_items:
+            raise ValueError('Google iCal contains too many RRULE numbers')
+        try:
+            item = int(raw)
+        except ValueError as exc:
+            raise ValueError('Google iCal contains an invalid RRULE number') from exc
+        if item < minimum or item > maximum or (nonzero and item == 0):
+            raise ValueError('Google iCal contains an out-of-range RRULE number')
+        if item not in seen:
+            seen.add(item)
+            result.append(item)
     return result
 
 
@@ -259,14 +291,22 @@ def _bydays(value: str | None) -> list[tuple[int | None, int]]:
     if not value:
         return []
     result = []
-    for item in value.split(','):
+    seen = set()
+    items = 0
+    for item in _comma_values(value):
+        items += 1
+        if items > MAX_BYDAY_VALUES:
+            raise ValueError('Google iCal RRULE has too many BYDAY values')
         match = re.fullmatch(r'([+-]?\d{1,2})?(MO|TU|WE|TH|FR|SA|SU)', item)
         if not match:
             raise ValueError('Google iCal contains an invalid BYDAY')
         ordinal = int(match.group(1)) if match.group(1) else None
         if ordinal == 0 or (ordinal is not None and abs(ordinal) > 53):
             raise ValueError('Google iCal contains an invalid BYDAY ordinal')
-        result.append((ordinal, _WEEKDAY[match.group(2)]))
+        parsed = (ordinal, _WEEKDAY[match.group(2)])
+        if parsed not in seen:
+            seen.add(parsed)
+            result.append(parsed)
     return result
 
 
@@ -338,17 +378,17 @@ def _until_allows(candidate, until) -> bool:
 
 def _recurrences(start, raw_rule: str, default_zone: ZoneInfo, horizon: dt.datetime):
     rule = _rrule(raw_rule)
-    interval_rows = _ints(rule.get('INTERVAL', '1'), 1, 10_000)
-    count = _ints(rule.get('COUNT'), 1, 1_000_000)
+    interval_rows = _ints(rule.get('INTERVAL', '1'), 1, 10_000, max_items=1)
+    count = _ints(rule.get('COUNT'), 1, 1_000_000, max_items=1)
     if len(interval_rows) != 1 or len(count) > 1:
         raise ValueError('Google iCal contains an invalid RRULE number')
     interval = interval_rows[0]
     limit = count[0] if count else None
     until = _parse_until(rule['UNTIL'], start, default_zone) if rule.get('UNTIL') else None
-    bymonth = _ints(rule.get('BYMONTH'), 1, 12)
-    bymonthday = _ints(rule.get('BYMONTHDAY'), -31, 31, nonzero=True)
+    bymonth = _ints(rule.get('BYMONTH'), 1, 12, max_items=12)
+    bymonthday = _ints(rule.get('BYMONTHDAY'), -31, 31, nonzero=True, max_items=62)
     byday = _bydays(rule.get('BYDAY'))
-    positions = _ints(rule.get('BYSETPOS'), -366, 366, nonzero=True)
+    positions = _ints(rule.get('BYSETPOS'), -366, 366, nonzero=True, max_items=MAX_BYSETPOS_VALUES)
     wkst = _WEEKDAY.get(rule.get('WKST', 'MO'))
     if wkst is None:
         raise ValueError('Google iCal contains an invalid WKST')

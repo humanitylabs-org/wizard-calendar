@@ -186,6 +186,38 @@ except ValueError as exc:
 else:
     raise AssertionError('multi-value RRULE count was accepted')
 
+def oversized_rule_feed(field: bytes, values: bytes):
+    return (
+        b'BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:oversized-rule\r\n'
+        b'DTSTART;VALUE=DATE:20261030\r\nDTEND;VALUE=DATE:20261031\r\n'
+        + b'RRULE:FREQ=MONTHLY;' + field + b'=' + values
+        + b'\r\nSUMMARY:Oversized rule\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n'
+    )
+
+for field, values in [
+    (b'BYDAY', b'MO,' * 600_000 + b'MO'),
+    (b'BYMONTH', b'1,' * 600_000 + b'1'),
+]:
+    oversized_rule = oversized_rule_feed(field, values)
+    check(f'oversized {field.decode()} fixture stays under the feed byte limit', len(oversized_rule) < getattr(ical, 'MAX_FEED_BYTES'))
+    try:
+        ical.parse_ical(oversized_rule, calendar_id='ical:x', calendar_name='X', timezone='UTC', now='2026-10-30T12:00:00Z')
+    except ValueError as exc:
+        check(f'oversized {field.decode()} fails before cardinality materialization', 'too long' in str(exc))
+    else:
+        raise AssertionError(f'oversized {field.decode()} was accepted')
+
+for field, values in [
+    (b'BYDAY', b','.join([b'MO'] * 65)),
+    (b'BYMONTH', b','.join([b'1'] * 13)),
+]:
+    try:
+        ical.parse_ical(oversized_rule_feed(field, values), calendar_id='ical:x', calendar_name='X', timezone='UTC', now='2026-10-30T12:00:00Z')
+    except ValueError as exc:
+        check(f'{field.decode()} value cardinality is capped while streaming', 'too many' in str(exc))
+    else:
+        raise AssertionError(f'{field.decode()} value cardinality limit was bypassed')
+
 mixed_rdate = b'''BEGIN:VCALENDAR\r
 BEGIN:VEVENT\r
 UID:mixed-rdate\r

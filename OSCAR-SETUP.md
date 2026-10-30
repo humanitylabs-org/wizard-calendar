@@ -37,8 +37,9 @@ share that one file, so a crash cannot mix generations or restore a removed sour
 The URL is never included in `GET /api/sources`, `GET /api/events`, MCP output, generated
 event IDs or owner-facing errors. Fetches ignore inherited HTTP proxy variables, are limited
 to 8 MiB, 20,000 raw VEVENT records, 100,000 aggregate recurrence-date values and
-10,000 visible events, and use a shared bounded recurrence-expansion budget. Unsupported or
-malformed calendar data fails closed without stopping later saved calendars from refreshing.
+10,000 visible events, and use bounded RRULE length, token-cardinality and recurrence-expansion
+budgets. Unsupported or malformed calendar data fails closed without stopping later saved
+calendars from refreshing.
 
 Saved sources refresh every 15 minutes by default. **Sync now** refreshes immediately.
 A failed refresh retains the last-good events and shows a source-level error without exposing

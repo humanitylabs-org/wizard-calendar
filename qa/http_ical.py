@@ -107,6 +107,19 @@ END:VCALENDAR\r
         assert 'opaque-id' not in json.dumps(partial) and 'opaque-id' not in json.dumps(sources)
         checks.append('malformed RRULE retains last-good data and does not stop later sources')
 
+        oversized_rule = b'RRULE:FREQ=MONTHLY;BYDAY=' + b'MO,' * 6_000 + b'MO\r\n'
+        oversized = feed('Oversized').replace(b'SUMMARY:', oversized_rule + b'SUMMARY:')
+        assert len(oversized) < server.ical_feed.MAX_FEED_BYTES
+        server.ical_feed.fetch_google_ical = lambda url: oversized if 'opaque-id' in url else feed('Second after oversized rule')
+        status, partial = request('POST', '/api/sync', {})
+        assert status == 200 and partial['synced'] == 1 and partial['failed'] == 1
+        status, events = request('GET', '/api/events')
+        assert status == 200 and {event['title'] for event in events['events']} == {'Updated title', 'Second after oversized rule'}
+        status, sources = request('GET', '/api/sources')
+        assert 'too long' in sources['sources'][0]['error'] and sources['sources'][1]['error'] == ''
+        assert 'opaque-id' not in json.dumps(partial) and 'opaque-id' not in json.dumps(sources)
+        checks.append('oversized RRULE stays source-local and later sources still sync')
+
         status, removed = request('POST', '/api/sources/remove', {'id': source_id})
         assert status == 200 and removed == {'ok': True, 'id': source_id}
         status, removed = request('POST', '/api/sources/remove', {'id': second_source_id})
