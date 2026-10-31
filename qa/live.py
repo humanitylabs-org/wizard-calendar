@@ -105,7 +105,7 @@ def main():
 
         owner = {'Origin': f'http://{host}', 'Sec-Fetch-Site': 'same-origin', 'X-Wizard-Request': 'calendar'}
         status, health = req('/healthz')
-        check('health reports 0.2.0', status == 200 and health['version'] == '0.2.0')
+        check('health reports 0.2.1', status == 200 and health['version'] == '0.2.1')
         status, live = req('/api/live')
         check('both sources connected', status == 200 and live['connected'] and len(live['sources']) == 2)
         status, view = req('/api/events?from=2026-10-12&to=2026-12-21')
