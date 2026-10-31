@@ -2,16 +2,22 @@
   "openapi": "3.0.3",
   "info": {
     "title": "Wizard Calendar API",
-    "version": "0.1.0"
+    "version": "0.2.0"
   },
   "paths": {
     "/healthz": {
       "get": {
         "summary": "Service identity and setup status",
         "responses": {
-          "200": { "description": "Success" },
-          "400": { "description": "Invalid input" },
-          "403": { "description": "Untrusted Host or Origin" }
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "403": {
+            "description": "Untrusted Host or Origin"
+          }
         }
       }
     },
@@ -19,19 +25,53 @@
       "get": {
         "summary": "Visible read-only snapshot; no network calls",
         "responses": {
-          "200": { "description": "Success" },
-          "400": { "description": "Invalid input" },
-          "403": { "description": "Untrusted Host or Origin" }
-        }
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "403": {
+            "description": "Untrusted Host or Origin"
+          }
+        },
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "description": "Start of the window for connected calendars (with to). Default: 45 days ago."
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "description": "End (exclusive). Default: 120 days ahead. At most 400 days."
+          }
+        ]
       }
     },
     "/api/export": {
       "get": {
         "summary": "Complete saved snapshot including hidden calendars",
         "responses": {
-          "200": { "description": "Success" },
-          "400": { "description": "Invalid input" },
-          "403": { "description": "Untrusted Host or Origin" }
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "403": {
+            "description": "Untrusted Host or Origin"
+          }
         }
       }
     },
@@ -39,9 +79,15 @@
       "post": {
         "summary": "Atomically replace snapshot; see OSCAR-SETUP.md for schema and limits",
         "responses": {
-          "200": { "description": "Success" },
-          "400": { "description": "Invalid input" },
-          "403": { "description": "Untrusted Host or Origin" }
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "403": {
+            "description": "Untrusted Host or Origin"
+          }
         }
       }
     },
@@ -49,9 +95,15 @@
       "post": {
         "summary": "Set visible boolean for a known calendar id",
         "responses": {
-          "200": { "description": "Success" },
-          "400": { "description": "Invalid input" },
-          "403": { "description": "Untrusted Host or Origin" }
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "403": {
+            "description": "Untrusted Host or Origin"
+          }
         }
       }
     },
@@ -59,8 +111,12 @@
       "get": {
         "summary": "List saved iCal sources without their private URLs",
         "responses": {
-          "200": { "description": "Redacted source list" },
-          "403": { "description": "Untrusted Host or Origin" }
+          "200": {
+            "description": "Redacted source list"
+          },
+          "403": {
+            "description": "Untrusted Host or Origin"
+          }
         }
       },
       "post": {
@@ -71,22 +127,42 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": ["name", "url"],
+                "required": [
+                  "name",
+                  "url"
+                ],
                 "additionalProperties": false,
                 "properties": {
-                  "name": { "type": "string", "minLength": 1, "maxLength": 300 },
-                  "url": { "type": "string", "description": "Private https:// or webcal:// calendar.google.com iCal URL" }
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 300
+                  },
+                  "url": {
+                    "type": "string",
+                    "description": "Private https:// or webcal:// calendar.google.com iCal URL"
+                  }
                 }
               }
             }
           }
         },
         "responses": {
-          "200": { "description": "Source saved and its events committed" },
-          "400": { "description": "Invalid link, feed, or input" },
-          "403": { "description": "Untrusted Host or Origin" },
-          "413": { "description": "Request body too large" },
-          "500": { "description": "Storage failure; previous snapshot retained" }
+          "200": {
+            "description": "Source saved and its events committed"
+          },
+          "400": {
+            "description": "Invalid link, feed, or input"
+          },
+          "403": {
+            "description": "Untrusted Host or Origin"
+          },
+          "413": {
+            "description": "Request body too large"
+          },
+          "500": {
+            "description": "Storage failure; previous snapshot retained"
+          }
         }
       }
     },
@@ -99,20 +175,34 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": ["id"],
+                "required": [
+                  "id"
+                ],
                 "additionalProperties": false,
                 "properties": {
-                  "id": { "type": "string", "minLength": 1, "maxLength": 300 }
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 300
+                  }
                 }
               }
             }
           }
         },
         "responses": {
-          "200": { "description": "Source removed" },
-          "400": { "description": "Unknown source id" },
-          "403": { "description": "Untrusted Host or Origin" },
-          "500": { "description": "Storage failure; previous snapshot retained" }
+          "200": {
+            "description": "Source removed"
+          },
+          "400": {
+            "description": "Unknown source id"
+          },
+          "403": {
+            "description": "Untrusted Host or Origin"
+          },
+          "500": {
+            "description": "Storage failure; previous snapshot retained"
+          }
         }
       }
     },
@@ -120,10 +210,18 @@
       "post": {
         "summary": "Refresh all saved iCal sources and retain last-good events on failure",
         "responses": {
-          "200": { "description": "Refresh completed" },
-          "202": { "description": "A refresh is already running" },
-          "400": { "description": "Invalid input" },
-          "403": { "description": "Untrusted Host or Origin" }
+          "200": {
+            "description": "Refresh completed"
+          },
+          "202": {
+            "description": "A refresh is already running"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "403": {
+            "description": "Untrusted Host or Origin"
+          }
         }
       }
     },
@@ -131,9 +229,93 @@
       "post": {
         "summary": "Stateless JSON-RPC MCP initialize, tools/list and calendar_events",
         "responses": {
-          "200": { "description": "Success" },
-          "400": { "description": "Invalid input" },
-          "403": { "description": "Untrusted Host or Origin" }
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "403": {
+            "description": "Untrusted Host or Origin"
+          }
+        }
+      }
+    },
+    "/api/live": {
+      "get": {
+        "summary": "Connected Google / Microsoft accounts (through their Wizard apps); never a key.",
+        "responses": {
+          "200": {
+            "description": "Sources and accounts"
+          }
+        }
+      }
+    },
+    "/api/live/create": {
+      "post": {
+        "summary": "Add an event to a connected calendar {account, title, start, end, time_zone?, location?, description?, attendees?}.",
+        "description": "Owner page only: exact Origin, same-origin fetch, header X-Wizard-Request: calendar.",
+        "responses": {
+          "200": {
+            "description": "Done"
+          },
+          "400": {
+            "description": "Invalid"
+          },
+          "403": {
+            "description": "Not from Calendar"
+          }
+        }
+      }
+    },
+    "/api/live/update": {
+      "post": {
+        "summary": "Change an event {account, calendar_id, id, ...fields}.",
+        "description": "Owner page only: exact Origin, same-origin fetch, header X-Wizard-Request: calendar.",
+        "responses": {
+          "200": {
+            "description": "Done"
+          },
+          "400": {
+            "description": "Invalid"
+          },
+          "403": {
+            "description": "Not from Calendar"
+          }
+        }
+      }
+    },
+    "/api/live/delete": {
+      "post": {
+        "summary": "Delete an event {account, calendar_id, id}.",
+        "description": "Owner page only: exact Origin, same-origin fetch, header X-Wizard-Request: calendar.",
+        "responses": {
+          "200": {
+            "description": "Done"
+          },
+          "400": {
+            "description": "Invalid"
+          },
+          "403": {
+            "description": "Not from Calendar"
+          }
+        }
+      }
+    },
+    "/api/live/respond": {
+      "post": {
+        "summary": "Answer an invite {account, calendar_id, id, response: accepted|tentative|declined}.",
+        "description": "Owner page only: exact Origin, same-origin fetch, header X-Wizard-Request: calendar.",
+        "responses": {
+          "200": {
+            "description": "Done"
+          },
+          "400": {
+            "description": "Invalid"
+          },
+          "403": {
+            "description": "Not from Calendar"
+          }
         }
       }
     }
