@@ -478,7 +478,14 @@ class Handler(BaseHTTPRequestHandler):
         if path == '/api/events':
             query = dict(item.split('=', 1) for item in urlsplit(self.path).query.split('&') if '=' in item)
             try:
-                return self.respond(view(query.get('from'), query.get('to'), live.OWNER if self.owner() else None))
+                owner = self.owner()
+                seen = view(query.get('from'), query.get('to'),
+                            live.OWNER if owner else live.agent(self.headers.get('X-Wizard-Agent')))
+                # Match MCP: No access in any source denies the entire agent view, snapshot/iCal included.
+                if not owner and any(a.get('level') == 'no_access' for a in seen.get('agentAccess') or []):
+                    raise live.LiveError(403, 'agent_access_denied', 'Agent access to the calendar is No access. '
+                                         'The owner changes it in Calendar > Settings > Agent access.')
+                return self.respond(seen)
             except live.LiveError as exc:
                 return self.respond({'error': exc.message, 'code': exc.code}, exc.status)
         if path == '/api/live':
