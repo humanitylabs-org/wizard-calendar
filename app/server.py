@@ -36,7 +36,7 @@ SYNC_INTERVAL = max(0, int(os.environ.get('ICAL_SYNC_INTERVAL', '900')))
 MAX_BYTES = 4 * 1024 * 1024
 MAX_SOURCES = 20
 WEB = {'index.html', 'app.js', 'app.css', 'icon.svg', 'connect.js'}
-VERSION = '0.2.1'
+VERSION = '0.2.2'
 # Connected Google / Microsoft calendars (read and write) through the source apps on the Wizard app network.
 LIVE = None if os.environ.get('CALENDAR_LIVE', 'on') == 'off' else live.Live(live.parse_sources(os.environ.get('CALENDAR_SOURCES')))
 LIVE_WINDOW = (-45, 120)  # days around today when a caller does not ask for a range
