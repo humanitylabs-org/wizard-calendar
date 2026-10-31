@@ -374,7 +374,7 @@
     document.querySelector('[data-status]').textContent = 'Wizard core is missing. Follow the standalone setup in README.md.';
     return;
   }
-  WizardApp.ready({ name: 'Calendar', version: '0.2.0' });
+  WizardApp.ready({ name: 'Calendar', version: '0.2.1' });
 
   // Read-only sources: the private iCal URL is submitted once and never rendered back into the page.
   function openCals() {
