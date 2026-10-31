@@ -1,4 +1,5 @@
-/* Wizard Calendar — Day / Week / Month views (bottom tabs, Week default), widget, agenda, event sheet. Data: ./api/events (explicit snapshot import). */
+/* Wizard Calendar — Day / Week / Month views (bottom tabs, Week default), agenda, event sheet. Data: ./api/events — connected
+ * Google/Microsoft calendars (through their apps; add, edit, delete, answer invites), private iCal links and snapshot import. */
 (() => {
   const $ = (s) => document.querySelector(s);
   const API = new URL('api/events', location.href).pathname;
@@ -7,6 +8,7 @@
   const MODES = ['day', 'week', 'month'], HOUR = 48;
   let mode = MODES.includes(localStorage.getItem('wc.mode')) ? localStorage.getItem('wc.mode') : 'week';
   let needScroll = true; // scroll the time grid to "now" on the next render
+  let range = null, loading = null; // the loaded live window [from, to)
 
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const keyFmt = () => new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' });
@@ -240,7 +242,16 @@
     else renderTime();
   }
 
-  function render() { skinColours(); index(); renderTodayBtn(); renderView(); renderFoot(); $('[data-status]').textContent = doc.calendars?.length ? `${doc.events.length} visible events · ${TZ}` : 'No calendar yet. Open Settings to add a Google iCal link.'; }
+  const liveCals = () => (doc?.calendars || []).filter((c) => c.live);
+  function render() {
+    skinColours(); index(); renderTodayBtn(); renderView(); renderFoot(); renderSugg();
+    const none = !doc.calendars?.length;
+    $('[data-hello]').hidden = !none;
+    document.querySelector('.app').classList.toggle('is-empty', none);
+    $('[data-new]').hidden = !liveCals().length;
+    $('[data-status]').textContent = none ? '' : `${doc.events.length} visible events · ${TZ}`;
+    $('[data-status]').hidden = none;
+  }
 
   // Domain overlays use the shared Back stack, never app-owned root guards.
   let sheetBack = null;
@@ -263,12 +274,185 @@
       <div class="row"><span class="k">Calendar</span><span class="v chip"><i style="background:${esc(e.color)}"></i>${esc(cal?.name || '')}</span></div>
       ${e.location ? `<div class="row"><span class="k">Where</span><span class="v">${esc(e.location)}</span></div>` : ''}
       ${e.attendees ? `<div class="row"><span class="k">Guests</span><span class="v">${e.attendees}</span></div>` : ''}
+      ${e.guests ? `<div class="row"><span class="k">Guests</span><span class="v">${esc(e.guests)}</span></div>` : ''}
       ${desc ? `<div class="row"><span class="k">Notes</span><span class="v">${esc(desc)}</span></div>` : ''}
-      <div class="acts">${e.meet ? `<a href="${esc(e.meet)}" target="_blank" rel="noopener">Join Meet</a>` : ''}${maps ? `<a href="${esc(maps)}" target="_blank" rel="noopener">Map</a>` : ''}${e.link ? `<a href="${esc(e.link)}" target="_blank" rel="noopener">Open in Google Calendar</a>` : ''}</div>`;
+      <div class="acts">${e.meet ? `<a href="${esc(e.meet)}" target="_blank" rel="noopener">Join Meet</a>` : ''}${maps ? `<a href="${esc(maps)}" target="_blank" rel="noopener">Map</a>` : ''}${e.link ? `<a href="${esc(e.link)}" target="_blank" rel="noopener">${e.live ? 'Open in ' + (cal?.source === 'microsoft' ? 'Outlook' : 'Google Calendar') : 'Open in Google Calendar'}</a>` : ''}</div>
+      ${e.live ? liveActions(e) : ''}<div class="msg" data-c-msg role="status"></div>`;
     showSheet();
     if (!sheetOpen) { sheetOpen = true; sheetBack = WizardApp.back.push(() => { closeSheet(); return true; }); }
   }
   // role/aria-modal only while open: the Wizard shell reads them to confirm a Back press closed something.
+  // ---- connected calendars: answer, add, edit, delete (the source app does the work) ----
+  const RSVP = [['accepted', 'Going'], ['tentative', 'Maybe'], ['declined', 'Not going']];
+  function liveActions(e) {
+    const L = e.live;
+    const rsvp = L.invited ? `<div class="sec">Your answer</div><div class="rsvp">${RSVP.map(([v, t]) => `<button class="chip-btn${L.my_response === v ? ' on' : ''}" data-rsvp="${v}" data-evid="${esc(e.id)}" aria-pressed="${L.my_response === v}">${t}</button>`).join('')}</div>` : '';
+    const edit = L.is_organizer || !L.invited ? `<button class="btn" data-edit="${esc(e.id)}">Edit</button><button class="btn danger" data-del="${esc(e.id)}">Delete</button>` : '';
+    return `${rsvp}${edit ? `<div class="live-acts">${edit}</div>` : ''}${L.recurring ? '<p class="note">Repeating event: changes here apply to this one only where your calendar allows; otherwise to the series.</p>' : ''}`;
+  }
+  async function livePost(path, body) {
+    const r = await fetch(new URL(path, location.href).pathname, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-Wizard-Request': 'calendar' }, body: JSON.stringify(body) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || `Request failed (${r.status})`);
+    return d;
+  }
+  const evById = (id) => (doc?.events || []).find((x) => x.id === id);
+  const target = (e) => ({ account: e.live.account, calendar_id: e.live.calendar_id, id: e.live.id });
+  async function rsvp(btn) {
+    const e = evById(btn.dataset.evid); if (!e) return;
+    for (const b of btn.parentElement.children) { b.disabled = true; }
+    try { await livePost('api/live/respond', { ...target(e), response: btn.dataset.rsvp }); await load(false); openSheet(e.id); say('Answer sent.', true); }
+    catch (err) { for (const b of btn.parentElement.children) b.disabled = false; say(err.message); }
+  }
+  async function del(btn) {
+    const e = evById(btn.dataset.del); if (!e) return;
+    if (btn.dataset.sure !== '1') { btn.dataset.sure = '1'; btn.textContent = 'Delete for good?'; return; }
+    btn.disabled = true;
+    try { await livePost('api/live/delete', target(e)); closeSheet(); await load(false); }
+    catch (err) { btn.disabled = false; say(err.message); }
+  }
+  const pad = (n) => String(n).padStart(2, '0');
+  const hhmm = (mins) => `${pad(Math.floor(mins / 60) % 24)}:${pad(mins % 60)}`;
+  function openForm(e, preset) {
+    const cals = liveCals(); if (!cals.length) return connect();
+    const all = e ? e.allDay : !!preset?.allDay;
+    const day = e ? (e.allDay ? e.start.slice(0, 10) : dayKey(new Date(e.start))) : (preset?.day || sel || todayKey());
+    const endDay = e ? (e.allDay ? addDays(e.end.slice(0, 10), -1) : dayKey(new Date(new Date(e.end) - 1))) : day;
+    const sm = e && !e.allDay ? hm(e.start) : (preset?.mins ?? Math.min(23 * 60, Math.ceil((nowMins() + 1) / 30) * 30));
+    const em = e && !e.allDay ? hm(e.end) : Math.min(sm + 60, 23 * 60 + 59);
+    const opts = cals.map((c) => `<option value="${esc(c.id)}"${e && e.cal === c.id ? ' selected' : ''}>${esc(c.name)}</option>`).join('');
+    $('[data-sheet]').innerHTML = `<div class="sh-top"><span class="grab"></span><button class="x" data-close aria-label="Close">✕</button></div><h2>${e ? 'Edit event' : 'New event'}</h2>
+      <form class="ev-form" data-form novalidate>
+        <label class="field">Title<input type="text" name="title" maxlength="300" required value="${esc(e?.title || '')}" autocomplete="off"></label>
+        <label class="check"><input type="checkbox" name="allDay"${all ? ' checked' : ''}> All day</label>
+        <div class="two"><label class="field">Starts<input type="date" name="day" value="${day}" required></label><label class="field t">Time<input type="time" name="start" value="${hhmm(sm)}" step="300"></label></div>
+        <div class="two"><label class="field">Ends<input type="date" name="endDay" value="${endDay}" required></label><label class="field t">Time<input type="time" name="end" value="${hhmm(em)}" step="300"></label></div>
+        <label class="field">Where<input type="text" name="location" maxlength="300" value="${esc(e?.location || '')}" autocomplete="off"></label>
+        <label class="field">Notes<textarea name="description" rows="3" maxlength="4000">${esc(e?.description || '')}</textarea></label>
+        ${e ? '' : `<label class="field">Calendar<select name="cal">${opts}</select></label>`}
+        <p class="note">${e ? 'Saved to' : 'Adds the event to'} your ${e ? esc((cals.find((c) => c.id === e.cal) || {}).name || 'calendar') : 'chosen calendar'}. Times are ${esc(TZ)}.</p>
+        <div class="live-acts"><button class="btn primary" type="submit">${e ? 'Save' : 'Add event'}</button></div>
+        <div class="msg" data-c-msg role="status"></div>
+      </form>`;
+    const f = $('[data-form]');
+    const sync = () => { for (const n of f.querySelectorAll('.t')) n.hidden = f.allDay.checked; };
+    f.allDay.addEventListener('change', sync); sync();
+    f.day.addEventListener('change', () => { if (f.endDay.value < f.day.value) f.endDay.value = f.day.value; });
+    f.addEventListener('submit', (ev) => { ev.preventDefault(); save(f, e); });
+    showSheet();
+    if (!sheetOpen) { sheetOpen = true; sheetBack = WizardApp.back.push(() => { closeSheet(); return true; }); }
+    if (!e) setTimeout(() => f.title.focus(), 60);
+  }
+  async function save(f, e) {
+    const title = f.title.value.trim();
+    if (!title) return say('Give the event a title.');
+    if (!f.day.value || !f.endDay.value) return say('Choose the dates.');
+    const all = f.allDay.checked;
+    const body = { title, location: f.location.value.trim(), description: f.description.value };
+    if (all) { body.start = f.day.value; body.end = addDays(f.endDay.value < f.day.value ? f.day.value : f.endDay.value, 1); }
+    else {
+      body.start = `${f.day.value}T${f.start.value || '09:00'}`; body.end = `${f.endDay.value}T${f.end.value || '10:00'}`; body.time_zone = TZ;
+      if (body.end <= body.start) return say('The event ends before it starts.');
+    }
+    const btn = f.querySelector('[type=submit]'); btn.disabled = true; btn.textContent = 'Saving…';
+    try {
+      if (e) await livePost('api/live/update', { ...target(e), ...body });
+      else await livePost('api/live/create', { account: f.cal.value, ...body });
+      sel = f.day.value; closeSheet(); await load(false);
+    } catch (err) { btn.disabled = false; btn.textContent = e ? 'Save' : 'Add event'; say(err.message); }
+  }
+  function connect(source, backToSettings) {
+    if (!window.WizardConnect) return;
+    if (sheetOpen) closeSheet();
+    window.WizardConnect.open({ purpose: 'calendar', source, onDone: async () => {
+      range = null;
+      await load(false).catch(() => {});
+      if (backToSettings) openCals();
+    } });
+  }
+
+  // ---- agents' suggestions (Suggest only): kept by the Google / Microsoft apps, shown here with Approve / Dismiss.
+  // Only the owner's tap applies one: Calendar's server forwards it with Calendar's App Manager grant. ----
+  const ANSWER = { accepted: 'Going', tentative: 'Maybe', declined: 'Not going' };
+  const sgKey = (s) => `${s.source}:${s.id}`;
+  const sgEvent = (s) => (doc?.events || []).find((e) => e.live && e.live.id === s.event_id && (!s.account || e.live.account === s.account));
+  function sgPart(v) {
+    if (!v || typeof v !== 'string') return null;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return { day: v, all: true };
+    if (/(Z|[+-]\d{2}:\d{2})$/.test(v)) return { day: dayKey(new Date(v)), time: fmtT(v) };
+    return { day: v.slice(0, 10), time: v.slice(11, 16) };
+  }
+  function sgWhen(start, end) {
+    const a = sgPart(start), b = sgPart(end);
+    if (!a) return '';
+    const d = (k) => fmtC(k, { weekday: 'short', day: 'numeric', month: 'short' });
+    if (a.all) { const last = b ? addDays(b.day, -1) : a.day; return `${d(a.day)}${last > a.day ? ` – ${d(last)}` : ''} · All day`; }
+    return `${d(a.day)} · ${a.time}${b ? `–${b.day !== a.day ? `${d(b.day)} ` : ''}${b.time}` : ''}`;
+  }
+  function evWhen(e) { return e ? (e.allDay ? sgWhen(e.start.slice(0, 10), e.end.slice(0, 10)) : sgWhen(e.start, e.end)) : ''; }
+  function sgTitle(s) {
+    const ev = sgEvent(s), name = ev?.title || s.title || 'an event';
+    if (s.action === 'respond') return `Answer “${name}”: ${ANSWER[s.response] || s.response}`;
+    if (s.action === 'delete') return `Delete “${name}”`;
+    if (s.action === 'update') return `Change “${ev?.title || 'an event'}”`;
+    return `Add “${s.title || 'New event'}”`;
+  }
+  function sgSub(s) {
+    const ev = sgEvent(s), bits = [];
+    if (s.action === 'create') bits.push(sgWhen(s.start, s.end));
+    else if (s.action === 'update') {
+      if (s.title && s.title !== ev?.title) bits.push(`rename to “${s.title}”`);
+      if (s.start) bits.push(`move to ${sgWhen(s.start, s.end)}`);
+      if (!bits.length) bits.push('new details');
+    } else bits.push(evWhen(ev));
+    return bits.filter(Boolean).join(' · ');
+  }
+  const pending = () => doc?.suggestions || [];
+  function renderSugg() {
+    const box = $('[data-sugg]'), list = pending();
+    box.hidden = !list.length;
+    if (!list.length) { box.replaceChildren(); return; }
+    const s = list[0];
+    box.innerHTML = `<div class="wcs-sg"><button class="wcs-sg-main" data-sg-open><span class="wcs-sg-who">Your agent suggests</span><b>${esc(sgTitle(s))}</b><span>${esc(sgSub(s))}</span></button>
+      <span class="wcs-sg-acts"><button class="wcs-btn" data-sg-dismiss="${esc(sgKey(s))}">Dismiss</button><button class="wcs-btn wcs-primary" data-sg-approve="${esc(sgKey(s))}">Approve</button></span></div>
+      ${list.length > 1 ? `<button class="wcs-sg-more" data-sg-open>${list.length - 1} more suggestion${list.length > 2 ? 's' : ''}</button>` : ''}<p class="wcs-sg-err" data-sg-err role="alert"></p>`;
+  }
+  function openSuggestions() {
+    const list = pending();
+    if (!list.length) return;
+    const rows = list.map((s) => {
+      const ev = sgEvent(s), cal = (doc.calendars || []).find((c) => c.id === s.account);
+      const facts = [['Calendar', cal?.name || s.email], s.location && ['Where', s.location], s.attendees?.length && ['Guests', s.attendees.join(', ')],
+        s.description && ['Notes', s.description], ev && s.action !== 'create' && ['Now', evWhen(ev)]].filter(Boolean);
+      return `<div class="wcs-sgi" data-sg-row="${esc(sgKey(s))}"><b>${esc(sgTitle(s))}</b><span class="wcs-sgi-when">${esc(sgSub(s))}</span>
+        ${facts.map(([k, v]) => `<div class="row"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></div>`).join('')}
+        <div class="wcs-sg-acts"><button class="wcs-btn" data-sg-dismiss="${esc(sgKey(s))}">Dismiss</button><button class="wcs-btn wcs-primary" data-sg-approve="${esc(sgKey(s))}">Approve</button></div></div>`;
+    }).join('');
+    $('[data-sheet]').innerHTML = `<div class="sh-top"><span class="grab"></span><button class="x" data-close aria-label="Close">✕</button></div><h2>Suggestions</h2>
+      <p class="note">Your agent suggested ${list.length === 1 ? 'this change' : 'these changes'}. Nothing changes until you approve.</p>${rows}<div class="msg" data-c-msg role="status"></div>`;
+    showSheet();
+    if (!sheetOpen) { sheetOpen = true; sheetBack = WizardApp.back.push(() => { closeSheet(); return true; }); }
+  }
+  async function decide(btn, approve) {
+    const key = approve ? btn.dataset.sgApprove : btn.dataset.sgDismiss;
+    const s = pending().find((x) => sgKey(x) === key); if (!s) return;
+    const acts = btn.parentElement; for (const b of acts.children) b.disabled = true;
+    btn.textContent = approve ? 'Approving…' : 'Dismissing…';
+    const err = $('[data-sg-err]'); if (err) err.textContent = '';
+    try {
+      await livePost(`api/live/suggestions/${approve ? 'approve' : 'dismiss'}`, { source: s.source, id: s.id });
+      doc.suggestions = pending().filter((x) => sgKey(x) !== key);
+      renderSugg();
+      const row = document.querySelector(`[data-sg-row="${CSS.escape(key)}"]`);
+      if (row) { row.remove(); if (!pending().length) closeSheet(); }  // the last one handled: back to the calendar
+      if (approve) load(false).catch(() => {});
+    } catch (e) {
+      for (const b of acts.children) b.disabled = false;
+      btn.textContent = approve ? 'Approve' : 'Dismiss';
+      if (sheetOpen) say(e.message); else if (err) err.textContent = e.message;
+    }
+  }
+
   function showSheet() { const sh = $('[data-sheet]'); sh.hidden = false; sh.setAttribute('role', 'dialog'); sh.setAttribute('aria-modal', 'true'); $('[data-sheet-back]').hidden = false; }
   function hideSheet() { const sh = $('[data-sheet]'); sh.hidden = true; sh.removeAttribute('role'); sh.removeAttribute('aria-modal'); $('[data-sheet-back]').hidden = true; }
   function closeSheet() { sheetOpen = false; hideSheet(); sheetBack?.release(); sheetBack = null; }
@@ -276,15 +460,34 @@
     document.querySelector('[data-status]').textContent = 'Wizard core is missing. Follow the standalone setup in README.md.';
     return;
   }
-  WizardApp.ready({ name: 'Calendar', version: '0.1.0' });
+  WizardApp.ready({ name: 'Calendar', version: '0.3.0' });
 
-  // Read-only sources: the private iCal URL is submitted once and never rendered back into the page.
+  // Settings: Connected accounts + Agent access (settings.js, Mail's and Messenger's design), then private iCal links
+  // and the snapshot (read-only). The private iCal URL is submitted once and never rendered back into the page.
+  const SHEET_TOP = '<div class="sh-top"><span class="grab"></span><button class="x" data-close aria-label="Close">✕</button></div>';
   function openCals() {
-    const list = (doc?.calendars || []).map(c => `<button class="cal${c.hidden ? ' off' : ''}" data-vis="${esc(c.id)}" role="switch" aria-checked="${!c.hidden}"><i style="background:${esc(c.color)}"></i><span class="nm">${esc(c.name)}<small>${c.hidden ? 'Hidden' : `${c.count} events`}</small></span><span class="sw"></span></button>`).join('');
+    const list = (doc?.calendars || []).filter(c => !c.live).map(c => `<button class="cal${c.hidden ? ' off' : ''}" data-vis="${esc(c.id)}" role="switch" aria-checked="${!c.hidden}"><i style="background:${esc(c.color)}"></i><span class="nm">${esc(c.name)}<small>${c.hidden ? 'Hidden' : `${c.count} events`}</small></span><span class="sw"></span></button>`).join('');
     const sources = (doc?.connected || []).map(source => `<div class="source"><span class="nm">${esc(source.name)}<small>${source.error ? esc(source.error) : source.lastSyncedAt ? `Updated ${esc(fmtSynced(source.lastSyncedAt))}` : 'Google iCal'}</small></span><button class="remove" data-remove-source="${esc(source.id)}">Remove</button></div>`).join('');
-    $('[data-sheet]').innerHTML = `<div class="sh-top"><span class="grab"></span><button class="x" data-close aria-label="Close">✕</button></div><h2>Settings</h2><p class="note">Calendar is read-only. Add a private Google iCal link to see that calendar here.</p><div class="sync"><span>${doc?.syncedAt ? `Updated ${esc(fmtSynced(doc.syncedAt))}` : 'No calendar added'}</span><button class="btn" data-sync>Sync now</button></div><div class="sec">Your calendars</div>${sources || '<p class="note">No Google iCal calendars added.</p>'}<div class="sec">Add calendar</div><label class="field">Calendar name<input type="text" data-source-name maxlength="300" autocomplete="off" placeholder="Personal"></label><label class="field">Google iCal link<input type="text" data-source-url maxlength="4096" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://calendar.google.com/…/basic.ics"></label><p class="note">Use the private iCal link from Google Calendar settings. Anyone with that link can read the calendar, so it stays private on this Wizard.</p><button class="btn" data-add-source>Add calendar</button><div class="sec">Visible calendars</div>${list || '<p class="note">Calendars appear here after they are added.</p>'}<div class="sec">Advanced</div><p class="note">Snapshot import replaces the current visible snapshot, not your Google calendar. Your saved iCal links remain and return on the next sync.</p><input type="file" data-import accept="application/json,.json" aria-label="Import snapshot JSON"><a class="btn" href="api/export" download="calendar-snapshot.json">Export snapshot</a><div class="msg" data-c-msg role="status"></div>`;
+    const sync = (doc?.connected || []).length ? `<div class="sync"><span>${doc?.syncedAt ? `Updated ${esc(fmtSynced(doc.syncedAt))}` : 'Not updated yet'}</span><button class="btn" data-sync>Sync now</button></div>` : '';
+    $('[data-sheet]').innerHTML = `${SHEET_TOP}<h2>Settings</h2><div class="wcs" data-wcs></div>
+      <h3 class="wcs-h">Private iCal links</h3><p class="note">Read-only. Anyone with the link can read that calendar, so it stays private on this Wizard.</p>${sync}${sources}
+      <label class="field">Calendar name<input type="text" data-source-name maxlength="300" autocomplete="off" placeholder="Personal"></label><label class="field">Google iCal link<input type="text" data-source-url maxlength="4096" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://calendar.google.com/…/basic.ics"></label><button class="btn" data-add-source>Add link</button>
+      ${list ? `<h3 class="wcs-h">Shown calendars</h3>${list}` : ''}
+      <h3 class="wcs-h">Snapshot</h3><p class="note">Importing replaces the current snapshot, not your Google calendar. Saved iCal links come back on the next sync.</p><input type="file" data-import accept="application/json,.json" aria-label="Import snapshot JSON"><a class="btn" href="api/export" download="calendar-snapshot.json">Export snapshot</a><div class="msg" data-c-msg role="status"></div>`;
     showSheet();
     if (!sheetOpen) { sheetOpen = true; sheetBack = WizardApp.back.push(() => { closeSheet(); return true; }); }
+    if (window.WizardCalendarSettings && window.WizardConnect && window.WizardConnect.client) {
+      window.WizardCalendarSettings.render($('[data-wcs]'), {
+        say, accounts: () => doc?.accounts || [], connect: (source) => connect(source, true), home: openCals,
+        changed: async () => { range = null; await load(false).catch(() => {}); },
+        page: (title, nodes) => {
+          $('[data-sheet]').innerHTML = `${SHEET_TOP}<h2></h2><div class="wcs" data-wcs-page></div><div class="msg" data-c-msg role="status"></div>`;
+          $('[data-sheet] h2').textContent = title;
+          $('[data-wcs-page]').append(...nodes);
+          $('[data-sheet]').scrollTop = 0;
+        },
+      });
+    }
   }
 
   async function post(path, body) {
@@ -353,6 +556,15 @@
     if (!t) return;
     if (t.matches('[data-sheet-back], [data-close]')) return closeSheet();
     if (t.matches('[data-add-source]')) return addSource(t);
+    if (t.dataset.sgApprove) return decide(t, true);
+    if (t.dataset.sgDismiss) return decide(t, false);
+    if (t.matches('[data-sg-open]')) return openSuggestions();
+    if (t.dataset.connect) return connect(t.dataset.connect);
+    if (t.dataset.fix) return WizardApp.nav?.openApp ? WizardApp.nav.openApp(`wizard-${t.dataset.fix}`) : connect(t.dataset.fix);
+    if (t.matches('[data-new]')) return openForm(null, { day: sel });
+    if (t.dataset.rsvp) return rsvp(t);
+    if (t.dataset.edit) { const e = evById(t.dataset.edit); return e && openForm(e); }
+    if (t.dataset.del) return del(t);
     if (t.dataset.removeSource) return removeSource(t);
     if (t.dataset.vis) return toggleCal(t);
     if (t.dataset.ev) return openSheet(t.dataset.ev);
@@ -368,14 +580,14 @@
       const dir = t.matches('[data-prev]') ? -1 : 1, tk = todayKey();
       sel = addDays(sel, dir * (mode === 'week' ? 7 : 1));
       if (mode === 'week' && weekStart(sel) === weekStart(tk)) sel = tk;
-      needScroll = true; return renderTime();
+      needScroll = true; renderTime(); return ensureRange();
     }
     if (t.matches('[data-prev], [data-next-month]')) {
       const d = new Date(Date.UTC(view[0], view[1] + (t.matches('[data-prev]') ? -1 : 1), 1));
       view = [d.getUTCFullYear(), d.getUTCMonth()];
       sel = keyOf(new Date(Date.UTC(view[0], view[1], 1, 12)));
       if (sel.slice(0, 7) === todayKey().slice(0, 7)) sel = todayKey();
-      renderGrid(); renderAgenda(); return;
+      renderGrid(); renderAgenda(); return ensureRange();
     }
     if (t.matches('[data-cals]')) return openCals();
 
@@ -395,6 +607,14 @@
     const dx = e.changedTouches[0].clientX - sx, dy = e.changedTouches[0].clientY - sy; sx = null;
     if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) $(dx < 0 ? '[data-next-month]' : '[data-prev]').click();
   }, { passive: true });
+
+  // Tap an empty spot in Day/Week to add an event there (connected calendars only).
+  $('[data-tin]').addEventListener('click', (ev) => {
+    const col = ev.target.closest('.col');
+    if (!col || ev.target.closest('button') || !liveCals().length) return;
+    const y = ev.clientY - col.getBoundingClientRect().top;
+    openForm(null, { day: col.dataset.col, mins: Math.max(0, Math.min(23 * 60, Math.floor(y / HOUR * 2) * 30)) });
+  });
 
   // Horizontal swipe on the time grid changes week/day.
   let tx = null, ty = null;
@@ -418,13 +638,25 @@
     } catch (e) { btn.disabled = false; btn.textContent = 'Sync now'; say(e.message); }
   }
 
+  // The live window follows the view: about two weeks before the shown month to two months after.
+  function wanted() {
+    const k = sel || todayKey(), first = `${k.slice(0, 7)}-01`;
+    return [addDays(first, -21), addDays(first, 70)];
+  }
+  function ensureRange() {
+    if (!range || !sel) return;
+    const k = mode === 'month' ? `${(view ? `${view[0]}-${pad(view[1] + 1)}` : sel.slice(0, 7))}-15` : sel;
+    if (!loading && (addDays(k, -14) < range[0] || addDays(k, 21) > range[1])) { loading = load(false).catch(() => {}).finally(() => { loading = null; }); }
+  }
   async function load(refresh) {
     try {
-      const r = await fetch(API + (refresh ? '?refresh=1' : ''), { cache: 'no-store' });
+      const [from, to] = wanted();
+      // X-Wizard-Request marks the owner's own page: Calendar then reads with its grant and lists the agents' suggestions.
+      const r = await fetch(`${API}?from=${from}&to=${to}${refresh ? '&refresh=1' : ''}`, { cache: 'no-store', credentials: 'same-origin', headers: { 'X-Wizard-Request': 'calendar' } });
       if (!r.ok) throw new Error(`Load failed (${r.status})`);
       const d = await r.json();
       if (d.timezone) TZ = d.timezone;
-      doc = d;
+      doc = d; range = d.liveRange || null;
       if (!sel) sel = todayKey();
       if (!view) view = [+sel.slice(0, 4), +sel.slice(5, 7) - 1];
       render();

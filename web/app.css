@@ -10,7 +10,7 @@ html[data-wz-hosted] body { background: var(--wz-canvas); }
   --k0: var(--violet); --k1: var(--cyan); --k2: var(--pink); --k3: var(--amber); --k4: var(--red); --k-holiday: var(--green); }
 /* Hosted in a Wizard shell: sit on the shell's window glass; ink and hairlines follow the shell. */
 :root[data-wz-hosted] { --ink: var(--wz-text); --ink-2: var(--wz-text-secondary); --ink-3: var(--wz-text-muted); --line-2: var(--wz-border);
-  --sheet: var(--wz-overlay); --chrome: color-mix(in srgb, var(--wz-chrome) 70%, transparent); }
+  --sheet: var(--wz-panel, color-mix(in srgb, var(--wz-text) 10%, var(--wz-base))); --chrome: color-mix(in srgb, var(--wz-chrome) 70%, transparent); }
 html[data-wz-hosted], html[data-wz-hosted] body, html[data-wz-hosted] .app { background: transparent; }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html, body { margin: 0; height: 100%; background: var(--bg); }
@@ -103,7 +103,7 @@ a { color: var(--violet-2); }
 .sheet .acts a { text-decoration: none; padding: 10px 14px; border-radius: 12px; border: 1px solid var(--line-2); background: color-mix(in srgb, var(--violet) 14%, transparent); color: var(--ink); font-weight: 600; font-size: 14px; }
 
 /* Calendars & accounts sheet */
-.sheet .sec { margin: 16px 0 6px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3); }
+.sheet .sec { margin: 16px 0 6px; font-size: .875rem; font-weight: 600; color: var(--ink-2); }
 .sheet .source { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
 .sheet .source .nm { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .sheet .source .nm small { display: block; margin-top: 2px; color: var(--ink-3); font-size: .75rem; }
@@ -196,3 +196,125 @@ a { color: var(--violet-2); }
 .nav.today-btn b { position: absolute; inset: 0; display: grid; place-items: center; padding-top: 3px; line-height: 1; font-size: 10px; font-weight: 800; color: var(--ink); font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
 .sheet .sync { display: flex; align-items: center; gap: 10px; justify-content: space-between; color: var(--ink-2); font-size: 13.5px; margin: 4px 0 14px; }
 .sheet .sync .btn { margin: 0; }
+
+/* Connected calendars (Google / Microsoft through their Wizard apps) */
+.new-btn svg { stroke: var(--violet-2); }
+.hello { flex: 1 1 auto; overflow-y: auto; display: grid; place-items: center; padding: 24px 18px calc(24px + env(safe-area-inset-bottom)); }
+.hello[hidden] { display: none; }
+.hello-in { width: min(100%, 420px); text-align: center; }
+.hello-ic { width: 56px; height: 56px; margin: 0 auto 14px; display: grid; place-items: center; border-radius: 18px; background: color-mix(in srgb, var(--violet) 16%, transparent); }
+.hello-ic svg { width: 28px; height: 28px; fill: none; stroke: var(--violet-2); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.hello h2 { margin: 0 0 6px; font-size: 22px; line-height: 1.25; }
+.hello p { margin: 0 0 18px; color: var(--ink-2); font-size: 14.5px; line-height: 1.5; }
+.hello-list { display: grid; gap: 8px; text-align: left; }
+.hello-row, .wc-sheet .wz-row { width: 100%; display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 16px; border: 1px solid var(--line); background: color-mix(in srgb, var(--ink) 5%, transparent); color: var(--ink); text-align: left; font: inherit; cursor: pointer; }
+.hello-row:hover, .wc-sheet .wz-row:hover { border-color: color-mix(in srgb, var(--violet) 55%, var(--line)); }
+.hello-row .tile, .wc-sheet .wz-tile { flex: 0 0 auto; width: 38px; height: 38px; display: grid; place-items: center; border-radius: 12px; background: color-mix(in srgb, var(--violet) 18%, transparent); color: var(--violet-2); font-weight: 700; }
+.hello-row .main, .wc-sheet .wz-main { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.hello-row small, .wc-sheet .wz-main small { color: var(--ink-3); font-size: 12.5px; line-height: 1.35; }
+.hello-row .chev, .wc-sheet .chev { color: var(--ink-3); font-size: 20px; }
+.hello .lnk { margin-top: 16px; color: var(--violet-2); text-decoration: underline; font-size: 13px; }
+.sheet .connect-row, .sheet .live-acts, .sheet .rsvp { display: flex; gap: 8px; flex-wrap: wrap; }
+.sheet .live-acts { margin-top: 14px; }
+.sheet .live-acts .btn { margin-top: 0; }
+.sheet .btn.primary { background: var(--violet); color: var(--on-accent); border-color: transparent; }
+.sheet .btn.danger { color: var(--red); background: transparent; }
+.sheet .chip-btn { min-height: 40px; padding: 8px 14px; border-radius: 999px; border: 1px solid var(--line-2); color: var(--ink); font-weight: 600; font-size: 14px; }
+.sheet .chip-btn.on { background: var(--violet); color: var(--on-accent); border-color: transparent; }
+.sheet .chip-btn[disabled] { opacity: .6; }
+.ev-form .two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 8.5em); gap: 10px; }
+.ev-form .two .field[hidden] { display: none; }
+.ev-form .check { display: flex; align-items: center; gap: 10px; margin-top: 12px; color: var(--ink); font-size: 14.5px; }
+.ev-form .check input { width: 20px; height: 20px; margin: 0; accent-color: var(--violet); }
+.sheet select { width: 100%; margin-top: 6px; padding: 11px 12px; border-radius: 12px; border: 1px solid var(--line-2); background: color-mix(in srgb, var(--ink) 6%, transparent); color: var(--ink); font: inherit; font-size: 15px; }
+.sheet input[type="date"], .sheet input[type="time"] { color-scheme: inherit; min-height: 44px; }
+.tg .col { cursor: copy; }
+
+/* The connect sheet (web/connect.js, shared with Wizard Mail) on this app's own roles */
+.wc-sheet { width: min(calc(100% - 24px), 460px); max-height: min(86vh, 720px); padding: 20px; border-radius: 22px; border: 1px solid var(--line-2); background: var(--sheet); color: var(--ink); }
+.wc-sheet { -webkit-backdrop-filter: blur(28px) saturate(1.2); backdrop-filter: blur(28px) saturate(1.2); }
+/* Hosted skins make --sheet translucent: blur what is behind so the week view never shows through. */
+.wc-sheet::backdrop { background: rgba(0, 0, 0, .55); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+.wc-sheet h2 { margin: 0 0 12px; font-size: 20px; }
+.wc-sheet .wz-list { display: grid; gap: 8px; }
+.wc-sheet .muted { color: var(--ink-2); font-size: 14px; line-height: 1.45; }
+.wc-sheet .wc-note { margin-top: 12px; font-size: 12.5px; color: var(--ink-3); }
+.wc-sheet .wc-bad { color: var(--red); }
+.wc-sheet .wz-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+.wc-sheet .wz-button { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 10px 16px; border-radius: 12px; border: 1px solid transparent; background: var(--violet); color: var(--on-accent); font-weight: 650; font-size: 14.5px; text-decoration: none; cursor: pointer; }
+.wc-sheet .wz-button.secondary { background: transparent; color: var(--ink); border-color: var(--line-2); }
+.wc-steps { list-style: none; padding: 0; margin: 12px 0; display: grid; gap: 6px; }
+.wc-steps li { display: flex; gap: 8px; align-items: center; color: var(--ink-3); }
+.wc-steps li.wc-now { color: var(--ink); font-weight: 600; }
+.wc-steps li.wc-done { color: var(--ink-2); }
+.wc-dot { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; border: 1.5px solid currentColor; }
+.wc-steps li.wc-done .wc-dot { background: var(--violet); color: var(--on-accent); border-color: transparent; }
+.wc-steps li.wc-now .wc-dot { border-color: var(--violet); }
+.wc-spin { width: 22px; height: 22px; border-radius: 50%; border: 2.5px solid color-mix(in srgb, var(--ink) 18%, transparent); border-top-color: var(--violet); animation: spin 1s linear infinite; margin: 8px 0; }
+.wc-layer { position: fixed; inset: 0; z-index: 30; display: flex; flex-direction: column; background: var(--bg); }
+.wc-layer-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: calc(10px + env(safe-area-inset-top)) 12px 10px; border-bottom: 1px solid var(--line); }
+.wc-layer-bar .wz-button { min-height: 40px; padding: 8px 14px; border-radius: 12px; border: 1px solid var(--line-2); color: var(--ink); font-weight: 600; }
+.wc-frame { flex: 1; width: 100%; border: 0; }
+/* Wizard full screen puts its Exit pill over the top-right corner. */
+html[data-presentation="immersive"] .bar { padding-right: 170px; }
+/* Nothing connected yet: only the welcome and Settings. */
+.app.is-empty .tg, .app.is-empty .scroll, .app.is-empty .tabs, .app.is-empty [data-prev], .app.is-empty [data-next-month], .app.is-empty .month, .app.is-empty [data-today-btn] { display: none !important; }
+
+/* Settings (settings.js): the same design as Mail's and Messenger's. Flat brand tiles with a status dot, a + tile, and one
+   Agent access row with a quiet picker. `wcs-` prefix: host apps' generic classes leak in. */
+.sheet .wcs-h { margin: 20px 0 8px; font-size: .875rem; font-weight: 600; color: var(--ink-2); text-transform: none; letter-spacing: 0; }
+.sheet .wcs > .wcs-h:first-child { margin-top: 10px; }
+.wcs-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 6px; }
+.wcs-tile { position: relative; display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 0; padding: 8px 2px; border: 0; border-radius: 12px;
+  background: none; color: var(--ink); font: inherit; font-size: .78rem; line-height: 1.2; text-align: center; cursor: pointer; }
+@media (hover: hover) { .wcs-tile:hover { background: color-mix(in srgb, var(--ink) 6%, transparent); } }
+.wcs-tile:focus-visible { outline: 2px solid var(--violet); outline-offset: 1px; }
+.wcs-icon { position: relative; display: inline-flex; }
+.wcs-mark { display: block; width: 40px; height: 40px; }
+.wcs-dot { position: absolute; right: -5px; bottom: -5px; width: 15px; height: 15px; border-radius: 50%; background: var(--sheet); }
+.wcs-dot::after { content: ""; position: absolute; inset: 2.5px; border-radius: 50%; background: var(--green); }
+.wcs-warn .wcs-dot::after { background: var(--amber); }
+.wcs-name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wcs-sub { max-width: 100%; margin-top: -4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-3); font-size: .7rem; }
+.wcs-plus-mark { position: relative; width: 40px; height: 40px; border-radius: 50%; background: color-mix(in srgb, var(--ink) 9%, transparent); color: var(--ink-2); }
+.wcs-plus-mark::before, .wcs-plus-mark::after { content: ""; position: absolute; left: 50%; top: 50%; width: 16px; height: 2px; margin: -1px 0 0 -8px; border-radius: 1px; background: currentColor; }
+.wcs-plus-mark::after { transform: rotate(90deg); }
+.wcs-plus .wcs-name { color: var(--ink-2); }
+.wcs-group { border-radius: 14px; background: color-mix(in srgb, var(--ink) 6%, transparent); overflow: hidden; }
+.wcs-group > * + * { border-top: 1px solid var(--line); }
+.wcs-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 52px; padding: 4px 6px 4px 14px; }
+.wcs-agent { flex: none; font-weight: 600; white-space: nowrap; }
+.sheet select.wcs-level { flex: 0 1 auto; width: auto; min-width: 0; max-width: none; min-height: 44px; margin: 0; text-overflow: ellipsis; padding: 0 4px; border: 0;
+  background: none; color: var(--ink-2); font: inherit; font-size: 1rem; text-align: right; cursor: pointer; }
+.sheet select.wcs-level option { color: var(--ink); background: var(--bg); }
+.wcs-note, .wcs-muted { margin: 8px 2px 0; color: var(--ink-3); font-size: .8125rem; line-height: 1.4; }
+.wcs-text { margin: 4px 0 0; color: var(--ink-2); line-height: 1.45; }
+.wcs-bad { margin: 8px 0 0; color: var(--red); font-size: .8125rem; }
+.wcs-bad:empty { display: none; }
+.wcs-fact { padding-right: 14px; }
+.wcs-k { color: var(--ink-3); flex: none; }
+.wcs-v { min-width: 0; overflow-wrap: anywhere; text-align: right; }
+.wcs-back { display: inline-block; margin: 0 0 10px; padding: 4px 0; border: 0; background: none; color: var(--violet-2); font: inherit; cursor: pointer; }
+.wcs-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+.wcs-actions .btn { margin-top: 0; }
+.sheet .btn.wcs-danger { color: var(--red); background: transparent; }
+
+/* Agents' suggestions (Suggest only): a quiet strip under the bar, Approve / Dismiss on each. */
+.wcs-pending { flex: 0 0 auto; margin: 0 10px 8px; padding: 8px 8px 8px 12px; border-radius: 14px; background: color-mix(in srgb, var(--violet) 12%, transparent);
+  border: 1px dashed color-mix(in srgb, var(--violet) 55%, var(--line)); }
+.wcs-sg { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.wcs-sg-main { flex: 1 1 200px; min-width: 0; display: grid; gap: 1px; padding: 2px 0; }
+.wcs-sg-main b, .wcs-sgi > b { font-weight: 650; overflow-wrap: anywhere; }
+.wcs-sg-main span { color: var(--ink-2); font-size: .8125rem; }
+.wcs-sg-main .wcs-sg-who { color: var(--violet-2); font-size: .75rem; font-weight: 600; }
+.wcs-sg-acts { flex: 0 0 auto; display: flex; gap: 6px; margin-left: auto; }
+.wcs-btn { min-height: 38px; padding: 6px 14px; border-radius: 10px; border: 1px solid var(--line-2); color: var(--ink); font-weight: 600; font-size: .875rem; text-align: center; }
+.wcs-btn.wcs-primary { background: var(--violet); color: var(--on-accent); border-color: transparent; }
+.wcs-btn[disabled] { opacity: .6; }
+.wcs-sg-more { margin-top: 4px; padding: 6px 0 2px; color: var(--violet-2); font-size: .8125rem; font-weight: 600; }
+.wcs-sg-err { margin: 4px 0 0; color: var(--red); font-size: .8125rem; }
+.wcs-sg-err:empty { display: none; }
+.wcs-sgi { display: grid; gap: 2px; padding: 12px 0; border-top: 1px solid var(--line); }
+.wcs-sgi-when { color: var(--ink-2); font-size: .875rem; margin-bottom: 4px; }
+.wcs-sgi .wcs-sg-acts { margin-top: 8px; justify-content: flex-end; }
+.sheet .wcs-sgi .row { border-top: 0; padding: 3px 0; }
