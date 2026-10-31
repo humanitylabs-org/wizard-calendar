@@ -244,7 +244,7 @@
 
   const liveCals = () => (doc?.calendars || []).filter((c) => c.live);
   function render() {
-    skinColours(); index(); renderTodayBtn(); renderView(); renderFoot();
+    skinColours(); index(); renderTodayBtn(); renderView(); renderFoot(); renderSugg();
     const none = !doc.calendars?.length;
     $('[data-hello]').hidden = !none;
     document.querySelector('.app').classList.toggle('is-empty', none);
@@ -361,10 +361,96 @@
       sel = f.day.value; closeSheet(); await load(false);
     } catch (err) { btn.disabled = false; btn.textContent = e ? 'Save' : 'Add event'; say(err.message); }
   }
-  function connect(source) {
+  function connect(source, backToSettings) {
     if (!window.WizardConnect) return;
     if (sheetOpen) closeSheet();
-    window.WizardConnect.open({ purpose: 'calendar', source, onDone: () => { range = null; load(false).catch(() => {}); } });
+    window.WizardConnect.open({ purpose: 'calendar', source, onDone: async () => {
+      range = null;
+      await load(false).catch(() => {});
+      if (backToSettings) openCals();
+    } });
+  }
+
+  // ---- agents' suggestions (Suggest only): kept by the Google / Microsoft apps, shown here with Approve / Dismiss.
+  // Only the owner's tap applies one: Calendar's server forwards it with Calendar's App Manager grant. ----
+  const ANSWER = { accepted: 'Going', tentative: 'Maybe', declined: 'Not going' };
+  const sgKey = (s) => `${s.source}:${s.id}`;
+  const sgEvent = (s) => (doc?.events || []).find((e) => e.live && e.live.id === s.event_id && (!s.account || e.live.account === s.account));
+  function sgPart(v) {
+    if (!v || typeof v !== 'string') return null;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return { day: v, all: true };
+    if (/(Z|[+-]\d{2}:\d{2})$/.test(v)) return { day: dayKey(new Date(v)), time: fmtT(v) };
+    return { day: v.slice(0, 10), time: v.slice(11, 16) };
+  }
+  function sgWhen(start, end) {
+    const a = sgPart(start), b = sgPart(end);
+    if (!a) return '';
+    const d = (k) => fmtC(k, { weekday: 'short', day: 'numeric', month: 'short' });
+    if (a.all) { const last = b ? addDays(b.day, -1) : a.day; return `${d(a.day)}${last > a.day ? ` – ${d(last)}` : ''} · All day`; }
+    return `${d(a.day)} · ${a.time}${b ? `–${b.day !== a.day ? `${d(b.day)} ` : ''}${b.time}` : ''}`;
+  }
+  function evWhen(e) { return e ? (e.allDay ? sgWhen(e.start.slice(0, 10), e.end.slice(0, 10)) : sgWhen(e.start, e.end)) : ''; }
+  function sgTitle(s) {
+    const ev = sgEvent(s), name = ev?.title || s.title || 'an event';
+    if (s.action === 'respond') return `Answer “${name}”: ${ANSWER[s.response] || s.response}`;
+    if (s.action === 'delete') return `Delete “${name}”`;
+    if (s.action === 'update') return `Change “${ev?.title || 'an event'}”`;
+    return `Add “${s.title || 'New event'}”`;
+  }
+  function sgSub(s) {
+    const ev = sgEvent(s), bits = [];
+    if (s.action === 'create') bits.push(sgWhen(s.start, s.end));
+    else if (s.action === 'update') {
+      if (s.title && s.title !== ev?.title) bits.push(`rename to “${s.title}”`);
+      if (s.start) bits.push(`move to ${sgWhen(s.start, s.end)}`);
+      if (!bits.length) bits.push('new details');
+    } else bits.push(evWhen(ev));
+    return bits.filter(Boolean).join(' · ');
+  }
+  const pending = () => doc?.suggestions || [];
+  function renderSugg() {
+    const box = $('[data-sugg]'), list = pending();
+    box.hidden = !list.length;
+    if (!list.length) { box.replaceChildren(); return; }
+    const s = list[0];
+    box.innerHTML = `<div class="wcs-sg"><button class="wcs-sg-main" data-sg-open><span class="wcs-sg-who">Your agent suggests</span><b>${esc(sgTitle(s))}</b><span>${esc(sgSub(s))}</span></button>
+      <span class="wcs-sg-acts"><button class="wcs-btn" data-sg-dismiss="${esc(sgKey(s))}">Dismiss</button><button class="wcs-btn wcs-primary" data-sg-approve="${esc(sgKey(s))}">Approve</button></span></div>
+      ${list.length > 1 ? `<button class="wcs-sg-more" data-sg-open>${list.length - 1} more suggestion${list.length > 2 ? 's' : ''}</button>` : ''}<p class="wcs-sg-err" data-sg-err role="alert"></p>`;
+  }
+  function openSuggestions() {
+    const list = pending();
+    if (!list.length) return;
+    const rows = list.map((s) => {
+      const ev = sgEvent(s), cal = (doc.calendars || []).find((c) => c.id === s.account);
+      const facts = [['Calendar', cal?.name || s.email], s.location && ['Where', s.location], s.attendees?.length && ['Guests', s.attendees.join(', ')],
+        s.description && ['Notes', s.description], ev && s.action !== 'create' && ['Now', evWhen(ev)]].filter(Boolean);
+      return `<div class="wcs-sgi" data-sg-row="${esc(sgKey(s))}"><b>${esc(sgTitle(s))}</b><span class="wcs-sgi-when">${esc(sgSub(s))}</span>
+        ${facts.map(([k, v]) => `<div class="row"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></div>`).join('')}
+        <div class="wcs-sg-acts"><button class="wcs-btn" data-sg-dismiss="${esc(sgKey(s))}">Dismiss</button><button class="wcs-btn wcs-primary" data-sg-approve="${esc(sgKey(s))}">Approve</button></div></div>`;
+    }).join('');
+    $('[data-sheet]').innerHTML = `<div class="sh-top"><span class="grab"></span><button class="x" data-close aria-label="Close">✕</button></div><h2>Suggestions</h2>
+      <p class="note">Your agent suggested ${list.length === 1 ? 'this change' : 'these changes'}. Nothing changes until you approve.</p>${rows}<div class="msg" data-c-msg role="status"></div>`;
+    showSheet();
+    if (!sheetOpen) { sheetOpen = true; sheetBack = WizardApp.back.push(() => { closeSheet(); return true; }); }
+  }
+  async function decide(btn, approve) {
+    const key = approve ? btn.dataset.sgApprove : btn.dataset.sgDismiss;
+    const s = pending().find((x) => sgKey(x) === key); if (!s) return;
+    const acts = btn.parentElement; for (const b of acts.children) b.disabled = true;
+    btn.textContent = approve ? 'Approving…' : 'Dismissing…';
+    const err = $('[data-sg-err]'); if (err) err.textContent = '';
+    try {
+      await livePost(`api/live/suggestions/${approve ? 'approve' : 'dismiss'}`, { source: s.source, id: s.id });
+      doc.suggestions = pending().filter((x) => sgKey(x) !== key);
+      renderSugg();
+      const row = document.querySelector(`[data-sg-row="${CSS.escape(key)}"]`);
+      if (row) { row.remove(); if (!pending().length) closeSheet(); }  // the last one handled: back to the calendar
+      if (approve) load(false).catch(() => {});
+    } catch (e) {
+      for (const b of acts.children) b.disabled = false;
+      btn.textContent = approve ? 'Approve' : 'Dismiss';
+      if (sheetOpen) say(e.message); else if (err) err.textContent = e.message;
+    }
   }
 
   function showSheet() { const sh = $('[data-sheet]'); sh.hidden = false; sh.setAttribute('role', 'dialog'); sh.setAttribute('aria-modal', 'true'); $('[data-sheet-back]').hidden = false; }
@@ -374,20 +460,34 @@
     document.querySelector('[data-status]').textContent = 'Wizard core is missing. Follow the standalone setup in README.md.';
     return;
   }
-  WizardApp.ready({ name: 'Calendar', version: '0.2.2' });
+  WizardApp.ready({ name: 'Calendar', version: '0.3.0' });
 
-  // Read-only sources: the private iCal URL is submitted once and never rendered back into the page.
+  // Settings: Connected accounts + Agent access (settings.js, Mail's and Messenger's design), then private iCal links
+  // and the snapshot (read-only). The private iCal URL is submitted once and never rendered back into the page.
+  const SHEET_TOP = '<div class="sh-top"><span class="grab"></span><button class="x" data-close aria-label="Close">✕</button></div>';
   function openCals() {
     const list = (doc?.calendars || []).filter(c => !c.live).map(c => `<button class="cal${c.hidden ? ' off' : ''}" data-vis="${esc(c.id)}" role="switch" aria-checked="${!c.hidden}"><i style="background:${esc(c.color)}"></i><span class="nm">${esc(c.name)}<small>${c.hidden ? 'Hidden' : `${c.count} events`}</small></span><span class="sw"></span></button>`).join('');
     const sources = (doc?.connected || []).map(source => `<div class="source"><span class="nm">${esc(source.name)}<small>${source.error ? esc(source.error) : source.lastSyncedAt ? `Updated ${esc(fmtSynced(source.lastSyncedAt))}` : 'Google iCal'}</small></span><button class="remove" data-remove-source="${esc(source.id)}">Remove</button></div>`).join('');
-    $('[data-sheet]').innerHTML = `<div class="sh-top"><span class="grab"></span><button class="x" data-close aria-label="Close">✕</button></div><h2>Settings</h2><p class="note">Connect Google or Microsoft to see, add and change events. A private iCal link or a snapshot is read-only.</p><div class="sync"><span>${doc?.syncedAt ? `Updated ${esc(fmtSynced(doc.syncedAt))}` : 'No calendar added'}</span><button class="btn" data-sync>Sync now</button></div><div class="sec">Connected accounts</div>${accountsHtml()}<div class="connect-row"><button class="btn" data-connect="google">Connect Google</button><button class="btn" data-connect="microsoft">Connect Microsoft</button></div><div class="sec">Private iCal links</div>${sources || '<p class="note">No Google iCal calendars added.</p>'}<div class="sec">Add calendar</div><label class="field">Calendar name<input type="text" data-source-name maxlength="300" autocomplete="off" placeholder="Personal"></label><label class="field">Google iCal link<input type="text" data-source-url maxlength="4096" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://calendar.google.com/…/basic.ics"></label><p class="note">Use the private iCal link from Google Calendar settings. Anyone with that link can read the calendar, so it stays private on this Wizard.</p><button class="btn" data-add-source>Add calendar</button><div class="sec">Visible calendars</div>${list || '<p class="note">Calendars appear here after they are added.</p>'}<div class="sec">Advanced</div><p class="note">Snapshot import replaces the current visible snapshot, not your Google calendar. Your saved iCal links remain and return on the next sync.</p><input type="file" data-import accept="application/json,.json" aria-label="Import snapshot JSON"><a class="btn" href="api/export" download="calendar-snapshot.json">Export snapshot</a><div class="msg" data-c-msg role="status"></div>`;
+    const sync = (doc?.connected || []).length ? `<div class="sync"><span>${doc?.syncedAt ? `Updated ${esc(fmtSynced(doc.syncedAt))}` : 'Not updated yet'}</span><button class="btn" data-sync>Sync now</button></div>` : '';
+    $('[data-sheet]').innerHTML = `${SHEET_TOP}<h2>Settings</h2><div class="wcs" data-wcs></div>
+      <h3 class="wcs-h">Private iCal links</h3><p class="note">Read-only. Anyone with the link can read that calendar, so it stays private on this Wizard.</p>${sync}${sources}
+      <label class="field">Calendar name<input type="text" data-source-name maxlength="300" autocomplete="off" placeholder="Personal"></label><label class="field">Google iCal link<input type="text" data-source-url maxlength="4096" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://calendar.google.com/…/basic.ics"></label><button class="btn" data-add-source>Add link</button>
+      ${list ? `<h3 class="wcs-h">Shown calendars</h3>${list}` : ''}
+      <h3 class="wcs-h">Snapshot</h3><p class="note">Importing replaces the current snapshot, not your Google calendar. Saved iCal links come back on the next sync.</p><input type="file" data-import accept="application/json,.json" aria-label="Import snapshot JSON"><a class="btn" href="api/export" download="calendar-snapshot.json">Export snapshot</a><div class="msg" data-c-msg role="status"></div>`;
     showSheet();
     if (!sheetOpen) { sheetOpen = true; sheetBack = WizardApp.back.push(() => { closeSheet(); return true; }); }
-  }
-
-  function accountsHtml() {
-    const rows = (doc?.accounts || []).map((a) => `<div class="source"><span class="nm">${esc(a.label || a.email)}<small>${a.source === 'google' ? 'Google' : 'Microsoft'}${a.status !== 'active' ? ' · sign in again' : a.calendar ? '' : ' · calendar is off'}${a.label ? ' · ' + esc(a.email) : ''}</small></span>${a.status !== 'active' || !a.calendar ? `<button class="remove" data-fix="${esc(a.source)}">Fix</button>` : ''}</div>`).join('');
-    return rows || '<p class="note">No Google or Microsoft account connected yet.</p>';
+    if (window.WizardCalendarSettings && window.WizardConnect && window.WizardConnect.client) {
+      window.WizardCalendarSettings.render($('[data-wcs]'), {
+        say, accounts: () => doc?.accounts || [], connect: (source) => connect(source, true), home: openCals,
+        changed: async () => { range = null; await load(false).catch(() => {}); },
+        page: (title, nodes) => {
+          $('[data-sheet]').innerHTML = `${SHEET_TOP}<h2></h2><div class="wcs" data-wcs-page></div><div class="msg" data-c-msg role="status"></div>`;
+          $('[data-sheet] h2').textContent = title;
+          $('[data-wcs-page]').append(...nodes);
+          $('[data-sheet]').scrollTop = 0;
+        },
+      });
+    }
   }
 
   async function post(path, body) {
@@ -456,6 +556,9 @@
     if (!t) return;
     if (t.matches('[data-sheet-back], [data-close]')) return closeSheet();
     if (t.matches('[data-add-source]')) return addSource(t);
+    if (t.dataset.sgApprove) return decide(t, true);
+    if (t.dataset.sgDismiss) return decide(t, false);
+    if (t.matches('[data-sg-open]')) return openSuggestions();
     if (t.dataset.connect) return connect(t.dataset.connect);
     if (t.dataset.fix) return WizardApp.nav?.openApp ? WizardApp.nav.openApp(`wizard-${t.dataset.fix}`) : connect(t.dataset.fix);
     if (t.matches('[data-new]')) return openForm(null, { day: sel });
@@ -548,7 +651,8 @@
   async function load(refresh) {
     try {
       const [from, to] = wanted();
-      const r = await fetch(`${API}?from=${from}&to=${to}${refresh ? '&refresh=1' : ''}`, { cache: 'no-store' });
+      // X-Wizard-Request marks the owner's own page: Calendar then reads with its grant and lists the agents' suggestions.
+      const r = await fetch(`${API}?from=${from}&to=${to}${refresh ? '&refresh=1' : ''}`, { cache: 'no-store', credentials: 'same-origin', headers: { 'X-Wizard-Request': 'calendar' } });
       if (!r.ok) throw new Error(`Load failed (${r.status})`);
       const d = await r.json();
       if (d.timezone) TZ = d.timezone;

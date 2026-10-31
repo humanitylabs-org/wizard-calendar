@@ -10,8 +10,8 @@
     "utilities"
   ],
   "description": "Calendar for your Wizard: connect Google or Microsoft from inside Calendar (Quick connect through Composio, or your own app in the Google / Microsoft app) to see, add, change and delete events and answer invites. Private Google iCal links and snapshot import stay read-only.",
-  "tipi_version": 4,
-  "version": "0.2.2",
+  "tipi_version": 5,
+  "version": "0.3.0",
   "source": "https://github.com/humanitylabs-org/wizard-calendar",
   "exposable": false,
   "supported_architectures": [
@@ -19,7 +19,7 @@
     "arm64"
   ],
   "created_at": 1792063413573,
-  "updated_at": 1793432073884,
+  "updated_at": 1793437803252,
   "dynamic_config": true,
   "min_tipi_version": "4.8.0",
   "uid": 1000,

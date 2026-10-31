@@ -29,6 +29,10 @@ def check(name, condition):
 class Fake:
     def __init__(self, sid, email):
         self.sid, self.email, self.calls = sid, email, []
+        self.level = 'suggest_only'
+        self.suggestions = [{'id': f'sg_{"a" if sid == "google" else "b"}000000000000001', 'tool': 'calendar_create_event', 'action': 'create',
+                             'account': email, 'agent': 'agent:main', 'created': '2026-10-31T09:00:00+00:00',
+                             'args': {'title': 'Gym', 'start': '2026-11-04T07:00:00+07:00', 'end': '2026-11-04T08:00:00+07:00'}}]
         self.events = [
             {'id': f'{sid}-1', 'calendar_id': 'primary', 'title': 'Standup', 'all_day': False,
              'start': {'date_time': '2026-11-02T09:00:00+07:00', 'time_zone': 'Asia/Bangkok'}, 'end': {'date_time': '2026-11-02T09:15:00+07:00', 'time_zone': 'Asia/Bangkok'},
@@ -55,12 +59,24 @@ class Fake:
 
             def do_GET(self):
                 assert not self.headers.get('Origin') and not self.headers.get('Cookie')
-                self.reply(200, {'accounts': [{'email': fake.email, 'status': 'active', 'services': ['gmail' if sid == 'google' else 'mail', 'calendar'], 'via': 'composio'}]})
+                self.reply(200, {'accounts': [{'email': fake.email, 'status': 'active', 'services': ['gmail' if sid == 'google' else 'mail', 'calendar'], 'via': 'composio'}],
+                                 'calendar_access': {'level': fake.level, 'label': fake.level}})
 
             def do_POST(self):
                 body = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
                 tool = self.path.rsplit('/', 1)[1]
-                fake.calls.append((tool, body, self.headers.get('X-Wizard-Agent')))
+                grant = self.headers.get('X-Wizard-Grant')
+                fake.calls.append((tool, body, self.headers.get('X-Wizard-Agent'), grant))
+                owner = grant == f'grant-{sid}-0123456789'
+                if tool == 'calendar_suggestions':
+                    return self.reply(200, {'suggestions': fake.suggestions}) if owner else self.reply(403, {'error': {'code': 'agent_access_denied', 'message': 'no'}})
+                if tool in ('calendar_suggestion_approve', 'calendar_suggestion_dismiss'):
+                    if not owner:
+                        return self.reply(403, {'error': {'code': 'agent_approve_refused', 'message': 'Only the owner approves.'}})
+                    fake.suggestions = [x for x in fake.suggestions if x['id'] != body.get('id')]
+                    return self.reply(200, {'approved' if tool.endswith('approve') else 'dismissed': True})
+                if tool == 'calendar_list_events' and fake.level == 'no_access' and not owner:
+                    return self.reply(403, {'error': {'code': 'agent_access_denied', 'message': 'Agent access to the calendar is No access.'}})
                 if tool == 'calendar_list_events':
                     return self.reply(200, {'events': fake.events, 'next_page_token': None})
                 if tool == 'calendar_create_event':
@@ -84,8 +100,10 @@ def main():
     g, m = Fake('google', 'me@gmail.com'), Fake('microsoft', 'me@outlook.com')
     port, data = free_port(), tempfile.mkdtemp()
     host = f'127.0.0.1:{port}'
+    grants = Path(data).parent / f'grants-{port}.json'
     env = dict(os.environ, PORT=str(port), DATA_DIR=data, ICAL_SYNC_INTERVAL='0', CALENDAR_TIMEZONE='Asia/Bangkok',
-               CALENDAR_SOURCES=f'google={g.base},microsoft={m.base}')
+               CALENDAR_SOURCES=f'google={g.base},microsoft={m.base}', CALENDAR_DEV_MODE='loopback-single-owner',
+               WIZARD_GRANTS_FILE=str(grants))
     proc = subprocess.Popen([sys.executable, str(ROOT / 'app/server.py')], env=env, cwd=ROOT / 'app')
     try:
         for _ in range(50):
@@ -105,7 +123,7 @@ def main():
 
         owner = {'Origin': f'http://{host}', 'Sec-Fetch-Site': 'same-origin', 'X-Wizard-Request': 'calendar'}
         status, health = req('/healthz')
-        check('health reports 0.2.2', status == 200 and health['version'] == '0.2.2')
+        check('health reports 0.3.0', status == 200 and health['version'] == '0.3.0')
         status, live = req('/api/live')
         check('both sources connected', status == 200 and live['connected'] and len(live['sources']) == 2)
         status, view = req('/api/events?from=2026-10-12&to=2026-12-21')
@@ -129,7 +147,39 @@ def main():
         status, tools = req('/mcp', {'jsonrpc': '2.0', 'id': 2, 'method': 'tools/list'})
         check('agent has no write tool', [t['name'] for t in tools['result']['tools']] == ['calendar_events'])
 
+        status, mcp = req('/mcp', {'jsonrpc': '2.0', 'id': 3, 'method': 'tools/call', 'params': {'name': 'calendar_events'}}, {'X-Wizard-Agent': 'helper'})
+        check('agent name passed on, never a grant', [c for c in g.calls if c[0] == 'calendar_list_events'][-1][2:] == ('helper', None))
+        check('agents see no suggestions', json.loads(mcp['result']['content'][0]['text'])['suggestions'] == [])
+
         body = {'account': 'live:microsoft:me@outlook.com', 'title': 'Dentist', 'start': '2026-11-05T10:00', 'end': '2026-11-05T11:00', 'time_zone': 'Asia/Bangkok', 'location': 'Soi 24'}
+        # Without its App Manager grant Calendar refuses the owner's change (it would only become a suggestion).
+        status, value = req('/api/live/create', body, owner)
+        check('no grant: owner change refused clearly', status == 403 and value['code'] == 'owner_not_recognised')
+        grants.write_text(json.dumps({'outgoing': {'wizard-google': 'grant-google-0123456789', 'wizard-microsoft': 'grant-microsoft-0123456789'}}))
+        status, view = req('/api/events?from=2026-10-12&to=2026-12-21', None, {'X-Wizard-Request': 'calendar'})
+        check('owner page reads with the grant', [c for c in g.calls if c[0] == 'calendar_list_events'][-1][3] == 'grant-google-0123456789')
+        check('owner sees both suggestions', sorted(x['source'] for x in view['suggestions']) == ['google', 'microsoft']
+              and view['suggestions'][0]['title'] == 'Gym' and view['suggestions'][0]['account'].startswith('live:'))
+        check('agent levels shown', {a['source']: a['level'] for a in view['agentAccess']} == {'google': 'suggest_only', 'microsoft': 'suggest_only'})
+        sg = [x for x in view['suggestions'] if x['source'] == 'google'][0]
+        status, value = req('/api/live/suggestions/approve', {'source': 'google', 'id': sg['id']}, {k: v for k, v in owner.items() if k != 'Origin'})
+        check('approve needs the owner page', status == 403)
+        status, value = req('/api/live/suggestions/approve', {'source': 'google', 'id': sg['id']}, {**owner, 'Authorization': 'Bearer x'})
+        check('approve refuses bearer callers', status == 403)
+        status, value = req('/api/live/suggestions/approve', {'source': 'google', 'id': 'sg_nope'}, owner)
+        check('bad suggestion id refused', status == 400)
+        status, value = req('/api/live/suggestions/approve', {'source': 'google', 'id': sg['id']}, owner)
+        check('approve goes to Google with the grant', status == 200 and value['approved']
+              and [c for c in g.calls if c[0] == 'calendar_suggestion_approve'][-1][1:] == ({'id': sg['id']}, None, 'grant-google-0123456789'))
+        sm = [x for x in view['suggestions'] if x['source'] == 'microsoft'][0]
+        status, value = req('/api/live/suggestions/dismiss', {'source': 'microsoft', 'id': sm['id']}, owner)
+        check('dismiss goes to Microsoft with the grant', status == 200 and value['dismissed'] and not m.suggestions)
+        status, view = req('/api/events?from=2026-10-12&to=2026-12-21', None, {'X-Wizard-Request': 'calendar'})
+        check('handled suggestions are gone', view['suggestions'] == [])
+        g.level = 'no_access'
+        status, mcp = req('/mcp', {'jsonrpc': '2.0', 'id': 4, 'method': 'tools/call', 'params': {'name': 'calendar_events'}})
+        check('No access: the agent gets nothing, snapshot included', mcp['result']['isError'] and 'No access' in mcp['result']['content'][0]['text'])
+        g.level = 'suggest_only'
         for name, headers in (('no origin', {}), ('other origin', {**owner, 'Origin': 'https://evil.example'}), ('cross-site', {**owner, 'Sec-Fetch-Site': 'cross-site'}),
                               ('no app header', {k: v for k, v in owner.items() if k != 'X-Wizard-Request'})):
             status, value = req('/api/live/create', body, headers)
@@ -137,6 +187,7 @@ def main():
         check('nothing written yet', not [c for c in m.calls if c[0] == 'calendar_create_event'])
         status, value = req('/api/live/create', body, owner)
         check('create goes to Microsoft', status == 200 and value['created'])
+        check('the owner change carries the grant', [c for c in m.calls if c[0] == 'calendar_create_event'][-1][3] == 'grant-microsoft-0123456789')
         sent = [c for c in m.calls if c[0] == 'calendar_create_event'][-1][1]
         check('create arguments', sent == {'account': 'me@outlook.com', 'title': 'Dentist', 'start': '2026-11-05T10:00', 'end': '2026-11-05T11:00', 'location': 'Soi 24', 'time_zone': 'Asia/Bangkok'})
         for bad in ({**body, 'title': ' '}, {**body, 'end': '2026-11-05'}, {**body, 'end': '2026-11-04T10:00'}, {**body, 'account': 'live:yahoo:me@yahoo.com'},

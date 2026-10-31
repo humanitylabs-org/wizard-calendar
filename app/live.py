@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import os
 import re
 import threading
 import time
@@ -25,6 +26,45 @@ DATE = re.compile(r'^\d{4}-\d{2}-\d{2}$')
 DATETIME = re.compile(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})?$')
 EMAIL = re.compile(r'^[^@\s<>,;"]{1,64}@[A-Za-z0-9.-]{1,253}\.[A-Za-z]{2,}$')
 RESPONSES = ('accepted', 'declined', 'tentative')
+OWNER = 'owner'
+AGENT_NAME = re.compile(r'[a-z0-9][a-z0-9_-]{0,62}')
+SUGGESTION_ID = re.compile(r'sg_[0-9a-f]{16}')
+OLD_SOURCE = ('agent_access_denied', 'agent_approve_refused')
+READS = ('/v1/status', '/v1/calendar_list_events')
+
+
+def agent(name):
+    """The caller for a request made by an agent through Calendar's MCP. The source applies the owner's agent level."""
+    name = str(name or 'main').strip().lower()
+    return 'agent:' + (name if AGENT_NAME.fullmatch(name) else 'main')
+
+
+class Grants:
+    """Calendar's App Manager grants (`outgoing: {<app id>: <token>}` in $WIZARD_GRANTS_FILE). Calendar shows a source
+    app its grant only for requests made by the owner's signed-in screen, so the source can tell the owner's own
+    changes and Approve taps apart from an agent (wizard-google / wizard-microsoft `agent_access.py`). Never logged."""
+
+    def __init__(self, path):
+        self.path = path
+        self.stamp, self.tokens = None, {}
+        self.lock = threading.Lock()
+
+    def token(self, app_id):
+        if not self.path:
+            return None
+        with self.lock:
+            try:
+                st = os.stat(self.path)
+                stamp = (st.st_mtime_ns, st.st_size, st.st_ino)
+                if stamp != self.stamp:
+                    with open(self.path) as f:
+                        doc = json.loads(f.read(256 * 1024))
+                    out = doc.get('outgoing') if isinstance(doc, dict) else None
+                    self.tokens = {k: v for k, v in (out or {}).items() if isinstance(k, str) and isinstance(v, str)}
+                    self.stamp = stamp
+            except (OSError, ValueError, AttributeError):
+                self.stamp, self.tokens = None, {}
+            return self.tokens.get(app_id)
 
 
 class LiveError(Exception):
@@ -47,14 +87,25 @@ def parse_sources(value):
 
 
 class Source:
-    def __init__(self, sid, base, timeout=30):
+    def __init__(self, sid, base, timeout=30, grants=None):
         self.id, self.base, self.timeout = sid, base, timeout
+        self.grants = grants
         self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
-    def call(self, method, path, body=None):
+    def call(self, method, path, body=None, caller=None):
         data = json.dumps(body).encode() if body is not None else None
-        request = urllib.request.Request(self.base + path, data=data, method=method, headers={
-            'Accept': 'application/json', 'Content-Type': 'application/json', 'X-Wizard-Agent': 'wizard-calendar'})
+        headers = {'Accept': 'application/json', 'Content-Type': 'application/json'}
+        grant = self.grants.token(APPS[self.id]) if caller == OWNER and self.grants else None
+        if caller == OWNER and not grant and not path.endswith(READS):
+            # Without its grant Calendar would look like an agent: the owner's change would only be suggested.
+            raise LiveError(403, 'owner_not_recognised', f'Calendar can\'t prove it is you to the {NAMES[self.id]} app yet. '
+                            'Update Calendar from the App Store, then try again.')
+        if grant:
+            headers['X-Wizard-Grant'] = grant  # the owner's own tap in Calendar
+        else:
+            # An agent (through Calendar's MCP) or Calendar without a grant: the source applies the owner's agent level.
+            headers['X-Wizard-Agent'] = caller.split(':', 1)[-1] if caller and caller != OWNER else 'wizard-calendar'
+        request = urllib.request.Request(self.base + path, data=data, method=method, headers=headers)
         try:
             with self.opener.open(request, timeout=self.timeout) as response:
                 raw, status = response.read(8_000_001), response.status
@@ -69,6 +120,10 @@ class Source:
             value = {}
         if status >= 400:
             err = value.get('error') if isinstance(value, dict) and isinstance(value.get('error'), dict) else {}
+            if caller == OWNER and err.get('code') in OLD_SOURCE:
+                # The source did not recognise Calendar's grant (an older App Manager or source app): say so to the owner.
+                raise LiveError(403, 'owner_not_recognised', f'The {NAMES[self.id]} app did not recognise Calendar. Update Calendar '
+                                f'and the {NAMES[self.id]} app, then try again.')
             raise LiveError(status if 400 <= status < 600 else 502, str(err.get('code') or 'source_error'),
                             str(err.get('message') or f'The {NAMES[self.id]} app could not do that.')[:400])
         return value if isinstance(value, dict) else {}
@@ -114,14 +169,15 @@ def _iso(value, all_day):
 
 
 class Live:
-    def __init__(self, sources, clock=time.time):
-        self.sources = {sid: (s if isinstance(s, Source) else Source(sid, s)) for sid, s in sources.items()}
+    def __init__(self, sources, clock=time.time, grants_file=None):
+        self.grants = Grants(grants_file)
+        self.sources = {sid: (s if isinstance(s, Source) else Source(sid, s, grants=self.grants)) for sid, s in sources.items()}
         self.clock, self.cache, self.lock = clock, {}, threading.Lock()
         self.pool = ThreadPoolExecutor(max_workers=8)
 
-    def _status(self, source):
+    def _status(self, source, caller=None):
         try:
-            value = source.call('GET', '/v1/status')
+            value = source.call('GET', '/v1/status', None, caller)
         except LiveError as error:
             return {'id': source.id, 'name': NAMES[source.id], 'app': APPS[source.id], 'available': False, 'error': error.as_dict(), 'accounts': []}
         accounts = []
@@ -132,10 +188,12 @@ class Live:
             accounts.append({'key': _key(source.id, item['email']), 'source': source.id, 'email': item['email'],
                              'label': str(item.get('label') or '')[:80], 'status': str(item.get('status') or 'active'),
                              'calendar': 'calendar' in services, 'via': str(item.get('via') or '')})
-        return {'id': source.id, 'name': NAMES[source.id], 'app': APPS[source.id], 'available': True, 'error': None, 'accounts': accounts}
+        access = value.get('calendar_access') if isinstance(value.get('calendar_access'), dict) else None
+        return {'id': source.id, 'name': NAMES[source.id], 'app': APPS[source.id], 'available': True, 'error': None, 'accounts': accounts,
+                'agent_access': {'level': access.get('level'), 'label': access.get('label')} if access else None}
 
-    def status(self):
-        rows = list(self.pool.map(self._status, self.sources.values()))
+    def status(self, caller=None):
+        rows = list(self.pool.map(lambda src: self._status(src, caller), self.sources.values()))
         usable = [a for r in rows for a in r['accounts'] if a['calendar'] and a['status'] == 'active']
         return {'sources': rows, 'connected': bool(usable),
                 'needs_attention': [a for r in rows for a in r['accounts'] if a['calendar'] and a['status'] != 'active']}
@@ -144,14 +202,14 @@ class Live:
         status = status or self.status()
         return [a for r in status['sources'] for a in r['accounts'] if a['calendar'] and a['status'] == 'active']
 
-    def _list(self, account, time_min, time_max):
+    def _list(self, account, time_min, time_max, caller=None):
         sid, email = _split(account['key'])
         out, token = [], None
         for _ in range(5):  # at most 5 pages of 100 per account and window
             args = {'account': email, 'time_min': time_min, 'time_max': time_max, 'max': 100}
             if token:
                 args['page_token'] = token
-            value = self.sources[sid].call('POST', '/v1/calendar_list_events', args)
+            value = self.sources[sid].call('POST', '/v1/calendar_list_events', args, caller)
             out += [e for e in value.get('events') or [] if isinstance(e, dict)]
             token = value.get('next_page_token')
             if not token:
@@ -179,23 +237,23 @@ class Live:
                      'time_zone': str((e.get('start') or {}).get('time_zone') or '')},
         }
 
-    def window(self, start, end):
-        """Events for [start, end) (dates) from every connected calendar; cached briefly."""
+    def window(self, start, end, caller=None):
+        """Events for [start, end) (dates) from every connected calendar; cached briefly (owner and agents apart)."""
         for v in (start, end):
             if not isinstance(v, str) or not DATE.match(v):
                 raise LiveError(400, 'invalid_range', 'from and to must be dates.')
         a, b = dt.date.fromisoformat(start), dt.date.fromisoformat(end)
         if b <= a or (b - a).days > MAX_SPAN_DAYS:
             raise LiveError(400, 'invalid_range', 'Ask for at most a year at a time.')
-        status = self.status()
+        status = self.status(caller)
         accounts = self.calendars(status)
-        key = (start, end, tuple(x['key'] for x in accounts))
+        key = (caller or '', start, end, tuple(x['key'] for x in accounts))  # never shared between the owner and agents
         with self.lock:
             hit = self.cache.get(key)
             if hit and self.clock() - hit[0] < TTL:
                 return hit[1]
         time_min, time_max = f'{start}T00:00:00Z', f'{end}T00:00:00Z'
-        jobs = {x['key']: self.pool.submit(self._list, x, time_min, time_max) for x in accounts}
+        jobs = {x['key']: self.pool.submit(self._list, x, time_min, time_max, caller) for x in accounts}
         events, errors = [], []
         for x in accounts:
             try:
@@ -256,7 +314,7 @@ class Live:
 
     def create(self, body):
         sid, email = self._target(body)
-        result = self.sources[sid].call('POST', '/v1/calendar_create_event', {'account': email, **self._fields(body, False)})
+        result = self.sources[sid].call('POST', '/v1/calendar_create_event', {'account': email, **self._fields(body, False)}, OWNER)
         self.changed()
         return {'created': True, 'id': ((result.get('event') or {}).get('id'))}
 
@@ -265,13 +323,13 @@ class Live:
         fields = self._fields(body, True)
         if not fields:
             raise LiveError(400, 'nothing_to_change', 'Nothing to change.')
-        self.sources[sid].call('POST', '/v1/calendar_update_event', {'account': email, **self._ids(body), **fields})
+        self.sources[sid].call('POST', '/v1/calendar_update_event', {'account': email, **self._ids(body), **fields}, OWNER)
         self.changed()
         return {'updated': True}
 
     def delete(self, body):
         sid, email = self._target(body)
-        self.sources[sid].call('POST', '/v1/calendar_delete_event', {'account': email, **self._ids(body)})
+        self.sources[sid].call('POST', '/v1/calendar_delete_event', {'account': email, **self._ids(body)}, OWNER)
         self.changed()
         return {'deleted': True}
 
@@ -279,6 +337,55 @@ class Live:
         sid, email = self._target(body)
         if body.get('response') not in RESPONSES:
             raise LiveError(400, 'invalid_response', 'Answer accepted, tentative or declined.')
-        self.sources[sid].call('POST', '/v1/calendar_respond', {'account': email, **self._ids(body), 'response': body['response']})
+        self.sources[sid].call('POST', '/v1/calendar_respond', {'account': email, **self._ids(body), 'response': body['response']}, OWNER)
         self.changed()
         return {'responded': body['response']}
+
+    # ---------- agents' suggestions (Suggest only): kept by the source apps, applied only by the owner's Approve ----------
+    def _suggestions(self, source):
+        try:
+            value = source.call('POST', '/v1/calendar_suggestions', {}, OWNER)
+        except LiveError as error:
+            return [], error
+        out = []
+        for item in value.get('suggestions') or []:
+            if not isinstance(item, dict) or not SUGGESTION_ID.fullmatch(str(item.get('id') or '')):
+                continue
+            args = item.get('args') if isinstance(item.get('args'), dict) else {}
+            email = str(item.get('account') or '')
+            out.append({'source': source.id, 'id': item['id'], 'action': str(item.get('action') or ''), 'tool': str(item.get('tool') or ''),
+                        'account': _key(source.id, email) if EMAIL.match(email) else '', 'email': email,
+                        'agent': str(item.get('agent') or '').split(':', 1)[-1][:40], 'created': str(item.get('created') or ''),
+                        'title': str(args.get('title') or '')[:300], 'start': args.get('start') if isinstance(args.get('start'), str) else '',
+                        'end': args.get('end') if isinstance(args.get('end'), str) else '',
+                        'time_zone': str(args.get('time_zone') or '')[:64], 'location': str(args.get('location') or '')[:300],
+                        'description': str(args.get('description') or '')[:2000],
+                        'attendees': [a for a in args.get('attendees') or [] if isinstance(a, str)][:50] if isinstance(args.get('attendees'), list) else [],
+                        'event_id': str(args.get('id') or '')[:1024], 'calendar_id': str(args.get('calendar_id') or 'primary')[:512],
+                        'response': str(args.get('response') or '')[:20]})
+        return out, None
+
+    def suggestions(self, available=None):
+        """Pending suggestions from every source app (owner only: read with Calendar's grant)."""
+        rows = [s for s in self.sources.values() if available is None or s.id in available]
+        found = list(self.pool.map(self._suggestions, rows))
+        items = [x for out, _ in found for x in out]
+        items.sort(key=lambda x: x['created'])
+        return items
+
+    def _suggestion(self, body):
+        sid, item = body.get('source'), body.get('id')
+        if sid not in self.sources or not isinstance(item, str) or not SUGGESTION_ID.fullmatch(item):
+            raise LiveError(400, 'invalid_suggestion', 'Unknown suggestion.')
+        return self.sources[sid], item
+
+    def approve(self, body):
+        source, item = self._suggestion(body)
+        source.call('POST', '/v1/calendar_suggestion_approve', {'id': item}, OWNER)
+        self.changed()
+        return {'approved': True, 'id': item}
+
+    def dismiss(self, body):
+        source, item = self._suggestion(body)
+        source.call('POST', '/v1/calendar_suggestion_dismiss', {'id': item}, OWNER)
+        return {'dismissed': True, 'id': item}
