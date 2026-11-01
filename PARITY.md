@@ -1,5 +1,26 @@
 # Live Calendar parity audit
 
+## Current image Alpha baseline
+
+The current release review compares exact tracked source at the supplied serving revision
+`e9832184b9435d4fe67d15fe7bcee083ab65cf4c` against this branch, not an older gog branch
+or GitHub main. The archived-source lexical gate reports no removed labels, routes,
+modules or tests, with no waivers. Review of the source delta finds no removed live UI
+or API capability: Day/Week/Month, details/actions, navigation, settings/visibility,
+sync/cache/error handling, snapshot/preferences import/export and MCP remain. The
+manual-link 410 responses and shared-theme migration described below already existed
+in that serving revision; they are not new image-package feature drops.
+
+Runtime source binds/hot-editing are intentionally replaced by fixed image packaging;
+they are not an owner-facing Calendar feature. The root-only data initializer grants
+only CHOWN, has no network and changes only the data-root ownership, not its contents.
+Browser/Compose/image tests and an actual in-shell two-skin review remain separate
+gates; a lexical PASS is not visual or installed-runtime acceptance. No deployment or
+owner-data migration is authorized by this document.
+
+The earlier rendered/legacy audit below is historical supporting evidence, not a
+substitute for the current serving-source comparison.
+
 This audit uses the supplied live tree, not GitHub main. The legacy tree is read-only; its dirty `web/app.js`, `index.html` and `wizard-appearance.js` are included in the comparison. No waivers are needed: the original `app-parity-gate` must pass with no missing inventory entries.
 
 ## Surface-by-surface comparison
@@ -27,7 +48,7 @@ Additional packaged features remain: validated atomic snapshot import/export, up
 
 The full source audit found losses beyond the lexical gate: the previous consumer dropped guest counts, provider descriptions and Meet URLs; used only -30/+180 days instead of the live -60/+400; and could not identify holiday palettes after hashing calendar IDs. This PR restores attendee-count validation/import/readback, description/Meet/UID/declined-response consumption, the full 460-day range split into two requests below the provider's 400-day cap, live title-or-UID+start dedupe, and holiday detection from provider_id.
 
-**Do not claim full end-to-end cutover parity from a green lexical gate alone.** Connected accounts PR #3 at `91a491e` currently requests only `id,summary,start,end,location,status,htmlLink` from Google and emits no description, meeting URL, attendee count, iCalUID or self-response. Its broker must emit bounded `description` (4000), `meet` (HTTPS, 2000), `attendee_count` (nonnegative integer), `ical_uid` and `self_response` (only the owner's response, no guest identities), and request the corresponding Google fields before those details can reach Calendar. The Calendar synthetic provider regression proves consumption but is not proof that the existing broker supplies them. Preserve real consent/grant restrictions. The provider omission is a coordinated-release prerequisite, not an approved feature drop.
+**Do not claim full end-to-end cutover parity from a green lexical gate alone.** The older Connected accounts revision `91a491e` omitted event description, Meet URL, attendee count, iCalUID and self-response. The coordinated provider candidate now requests and emits bounded `description` (4000), `meet` (HTTPS, 2000), `attendee_count`, `ical_uid` and `self_response` without guest identities. Provider HTTP regressions verify these fields, and Calendar synthetic provider regressions verify consumption. Actual owner-authorized provider-to-Calendar sync remains an installed acceptance gate, not an approved feature drop.
 
 The packaged freshness/status line is an intentional additive row, not a lost view. Standalone is always the dark fallback, including a light-preferring browser. Sheet/close-bar surfaces flatten translucent shared overlay colors over the shared base so underlying events do not bleed through.
 
