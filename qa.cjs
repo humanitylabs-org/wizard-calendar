@@ -37,7 +37,7 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); c ? pass++ : fa
   for (const endpoint of ['start','finish']) {
     const response=await ctx.request.post(base+'/api/connect/'+endpoint,{data:{email:'synthetic@example.invalid',url:'not a callback'}});
     const data=await response.json();
-    ok(response.status()===410 && data.setup_url==='/wizard-connectors/' && data.superseded_by==='Connected accounts', endpoint+' returns explained 410 and setup URL');
+    ok(response.status()===410 && data.setup_url==='/connected-accounts/' && data.superseded_by==='Connected accounts', endpoint+' returns explained 410 and setup URL');
   }
   ok(await p.locator('[data-c-email], [data-c-url]').count()===0,'Calendar never collects OAuth credentials');
 
