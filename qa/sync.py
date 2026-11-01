@@ -57,6 +57,11 @@ class SyncTests(unittest.TestCase):
         Path(os.environ['WIZARD_GRANTS_FILE']).write_text('{}')
         self.assertEqual(self.sync()['state'], 'not_linked')
 
+    def test_grant_under_connected_accounts_app_id_links(self):
+        # Live installs issue the grant under the renamed provider id; Calendar must still link and sync.
+        Path(os.environ['WIZARD_GRANTS_FILE']).write_text(json.dumps({'outgoing': {'connected-accounts': fake.KEY}, 'provider_endpoints': {'connected-accounts': self.base}}))
+        self.assertEqual(m.provider_link(), (self.base.rstrip('/'), fake.KEY))
+        self.assertNotEqual(self.sync()['state'], 'not_linked')
     def test_standard_grants_endpoint_precedence_and_fallback(self):
         self.grant()
         self.assertEqual(m.provider_link(), (self.base, fake.KEY))

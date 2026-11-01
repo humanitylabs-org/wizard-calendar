@@ -195,9 +195,11 @@ def provider_link():
         if not isinstance(grants, dict): return None
         outgoing, endpoints = grants.get('outgoing', {}), grants.get('provider_endpoints', {})
         if not isinstance(outgoing, dict) or not isinstance(endpoints, dict): return None
-        key = outgoing.get('wizard-connectors') or outgoing.get('slot:calendar-source')
+        # The provider app is installed as 'connected-accounts' (formerly 'wizard-connectors').
+        key = outgoing.get('connected-accounts') or outgoing.get('wizard-connectors') or outgoing.get('slot:calendar-source')
         # Permission broker endpoint takes precedence over an optional operator override.
-        base = endpoints.get('wizard-connectors') or endpoints.get('slot:calendar-source') or os.environ.get('CONNECTORS_URL')
+        base = (endpoints.get('connected-accounts') or endpoints.get('wizard-connectors') or endpoints.get('slot:calendar-source')
+                or os.environ.get('CONNECTORS_URL'))
         if not isinstance(key, str) or not key: return None
         if not isinstance(base, str): return None
         url = urlsplit(base)
