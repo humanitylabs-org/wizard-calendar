@@ -8,6 +8,7 @@ import os
 import platform
 from pathlib import Path
 import socket
+import signal
 import subprocess
 import sys
 import tarfile
@@ -181,6 +182,7 @@ def compose_tests():
 
 
 if __name__ == '__main__':
+    signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
     server_tests()
     compose_tests()
     (OUT / 'PASS').write_text('Calendar API, sync, browser, hosted harness and actual Compose passed.\n')
