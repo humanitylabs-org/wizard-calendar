@@ -89,6 +89,48 @@ def server_tests():
                 proc.terminate(); proc.wait(timeout=10)
 
 
+def fake_provider_service(image, published_port):
+    # The reused production image defaults to PORT=8799. Provider traffic and
+    # the grant endpoint use 8800; never let the image ENV choose this test port.
+    return {'image': image, 'read_only': True, 'user': '1000:1000', 'healthcheck': {'disable': True},
+            'environment': {'PYTHONDONTWRITEBYTECODE': '1', 'PORT': '8800'},
+            'command': ['python', '/app/qa/fake_connectors.py'],
+            'volumes': ['source:/app:ro'], 'ports': ['127.0.0.1:' + str(published_port) + ':8800']}
+
+
+def inspect_container(cid):
+    # Parse privately: never print Config.Env, health output or credentials.
+    return json.loads(subprocess.check_output(['docker', 'inspect', cid], env=ENV, text=True, timeout=15))[0]
+
+
+def compose_diagnostics(cmd, base, fake):
+    """Bounded synthetic-only diagnostics before teardown, including failures."""
+    result = {'api': {}, 'containers': []}
+    states = {'ok', 'error', 'needs_permission', 'not_configured', 'needs_setup', 'syncing', 'idle', 'unavailable'}
+    for label, url, path in [('calendar', base, '/api/sync'), ('provider', fake, '/__qa/calls')]:
+        try:
+            status, body = request(url, path)
+            result['api'][label] = {'http_status': status}
+            if label == 'calendar':
+                result['api'][label].update(state=body.get('state') if body.get('state') in states else 'other', syncing=body.get('syncing') is True)
+            else: result['api'][label]['call_count'] = len(body)
+        except Exception as exc: result['api'][label] = {'error_class': type(exc).__name__}
+    try:
+        ids = subprocess.check_output(cmd + ['ps', '-aq'], env=ENV, text=True, timeout=15).split()
+        for cid in ids:
+            info = inspect_container(cid); state = info['State']
+            result['containers'].append({'service': info['Config']['Labels'].get('com.docker.compose.service'),
+                'status': state.get('Status'), 'running': state.get('Running'), 'exit_code': state.get('ExitCode'), 'oom_killed': state.get('OOMKilled'),
+                'mounts': [{'target': m['Destination'], 'read_only': not m['RW']} for m in info['Mounts']]})
+        # Only these public, synthetic test services; bounded stderr/stdout, no
+        # owner endpoints, environment dump, grant file or personal pages.
+        logs = subprocess.run(cmd + ['logs', '--no-color', '--tail', '40'], env=ENV, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=15)
+        (OUT / 'compose-public-test.log').write_text(logs.stdout[-8192:])
+        result['log_truncated'] = len(logs.stdout) > 8192
+    except Exception as exc: result['diagnostic_error_class'] = type(exc).__name__
+    (OUT / 'compose-diagnostics.json').write_text(json.dumps(result, indent=2))
+
+
 def compose_tests():
     project = 'calendar-sync-qa-' + str(os.getpid())
     p, fp = port(), port()
@@ -96,13 +138,14 @@ def compose_tests():
     recipe = json.loads((ROOT / 'runtipi/docker-compose.yml').read_text())
     assert all('/wizard' not in v for v in recipe['services']['wizard-calendar']['volumes']), 'Grants mount belongs to WAM'
     image = recipe['services']['wizard-calendar']['image']
-    run(['docker', 'image', 'inspect', image])  # Preload the approved native Alpha image first.
+    # Verify existence without logging the image's complete Config.Env.
+    run(['docker', 'image', 'inspect', '--format', '{{.Id}}', image])
     names = {key: project + '_' + key for key in ('data', 'source', 'core', 'grants')}
     volumes = [{'type': 'volume', 'source': key, 'target': target, 'read_only': key != 'data'} for key, target in [('data', '/data'), ('core', '/core'), ('grants', '/wizard')]]
     override = {'services': {
         'calendar-data-init': {'volumes': [{'type': 'volume', 'source': 'data', 'target': '/data'}]},
         'wizard-calendar': {'environment': {'WIZARD_CORE_DIR': '/core', 'WIZARD_TRUSTED_HOSTS': '127.0.0.1:' + str(p), 'WIZARD_TRUSTED_ORIGINS': base, 'CALENDAR_SYNC_MINUTES': '0.01', 'WIZARD_GRANTS_FILE': '/wizard/grants.json'}, 'ports': ['127.0.0.1:' + str(p) + ':8799'], 'volumes': volumes},
-        'fake-connectors': {'image': image, 'read_only': True, 'user': '1000:1000', 'environment': {'PYTHONDONTWRITEBYTECODE': '1'}, 'command': ['python', '/app/qa/fake_connectors.py'], 'volumes': ['source:/app:ro'], 'ports': ['127.0.0.1:' + str(fp) + ':8800']}},
+        'fake-connectors': fake_provider_service(image, fp)},
         'volumes': {key: {'name': name, 'external': True} for key, name in names.items()}}
     path = OUT / 'compose.override.json'; path.write_text(json.dumps(override, indent=2))
     ENV.update(APP_DATA_DIR=str(OUT / 'unused'), APP_PORT=str(p))
@@ -114,7 +157,11 @@ def compose_tests():
     helper += [image, 'python', '-c']
     archive = io.BytesIO()
     with tarfile.open(fileobj=archive, mode='w') as bundle:
-        bundle.add(ROOT / 'qa/fake_connectors.py', arcname='qa/fake_connectors.py')
+        directory = tarfile.TarInfo('qa'); directory.type = tarfile.DIRTYPE; directory.mode = 0o755
+        bundle.addfile(directory)
+        info = bundle.gettarinfo(ROOT / 'qa/fake_connectors.py', arcname='qa/fake_connectors.py')
+        info.mode = 0o644
+        with (ROOT / 'qa/fake_connectors.py').open('rb') as file: bundle.addfile(info, file)
     # Pipe bytes directly: no host checkout bind is required inside the Colima VM.
     subprocess.run(helper + ["import sys,tarfile,os; tarfile.open(fileobj=sys.stdin.buffer,mode='r|').extractall('/source',filter='data'); os.chown('/data',0,0)"], input=archive.getvalue(), env=ENV, check=True)
     subprocess.run(helper + ["import sys; from pathlib import Path; Path('/core/app-client.js').write_bytes(sys.stdin.buffer.read())"], input=(ROOT / '.runtime/core/app-client.js').read_bytes(), env=ENV, check=True)
@@ -126,6 +173,12 @@ def compose_tests():
         grant('synthetic-calendar-grant')
         run(cmd + ['config'])
         run(cmd + ['up', '-d', '--no-build'])
+        # Real image ENV regression: verify inside each running service, without
+        # printing the environment or grant contents. Also check source modes.
+        run(cmd + ['exec', '-T', 'fake-connectors', 'python', '-c', "import os,stat; from pathlib import Path; assert os.environ['PORT']=='8800'; p=Path('/app/qa/fake_connectors.py'); assert stat.S_IMODE(p.stat().st_mode)==0o644; assert os.access(p,os.R_OK); print('FAKE_PROVIDER_PORT_8800_SOURCE_0644')"])
+        run(cmd + ['exec', '-T', 'wizard-calendar', 'python', '-c', "import os; assert os.environ['PORT']=='8799'; from pathlib import Path; assert Path('/wizard/grants.json').stat().st_mode & 0o444 == 0o444; assert Path('/core/app-client.js').is_file(); print('CALENDAR_PORT_8799_GRANTS_CORE_READABLE')"])
+        run(cmd + ['exec', '-T', 'wizard-calendar', 'python', '-c', "import urllib.request,json; r=urllib.request.urlopen('http://fake-connectors:8800/__qa/calls',timeout=3); assert r.status==200; assert isinstance(json.load(r),list); print('PROVIDER_LISTENER_8800_REACHABLE')"])
+        checks.append('real production image port 8799 overridden to 8800 only for fake provider; mounted source/core/grants readable')
         until(lambda: request(base, '/api/sync')[1]['state'] == 'ok')
         status = request(base, '/api/sync')[1]
         doc = request(base, '/api/export')[1]
@@ -165,7 +218,7 @@ def compose_tests():
         assert any(e['title'] == 'alpha refreshed' for e in partial['events'])
         checks.append('failed calendar retains its last good data while successful calendar refreshes')
         cid = run(cmd + ['ps', '-q', 'wizard-calendar']).strip()
-        inspect = json.loads(run(['docker', 'inspect', cid]))[0]
+        inspect = inspect_container(cid)
         assert inspect['HostConfig']['ReadonlyRootfs']
         assert inspect['Config']['User'] == recipe['services']['wizard-calendar']['user'] == '1000:1000'
         assert inspect['HostConfig']['CapDrop'] == ['ALL']
@@ -176,9 +229,11 @@ def compose_tests():
         result = {'ok': True, 'image': image, 'project': project, 'count': len(checks), 'checks': checks, 'initial_sync': status, 'grant_checks': calls}
         (OUT / 'compose.json').write_text(json.dumps(result, indent=2)); print(json.dumps(result, indent=2), flush=True)
     finally:
-        run(cmd + ['logs', '--no-color'])
-        run(cmd + ['down', '--remove-orphans'])
-        for name in names.values(): run(['docker', 'volume', 'rm', name])
+        try: compose_diagnostics(cmd, base, fake)
+        finally:
+            try: run(cmd + ['down', '--remove-orphans'])
+            finally:
+                for name in names.values(): run(['docker', 'volume', 'rm', name])
 
 
 if __name__ == '__main__':
