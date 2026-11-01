@@ -5,7 +5,7 @@ const base = process.env.CALENDAR_URL || 'http://127.0.0.1:18787';
 const out = process.env.QA_OUT || path.join(__dirname, '../evidence');
 fs.mkdirSync(out, {recursive:true});
 (async () => {
-  const browser = await chromium.launch({headless:true, channel:process.env.BROWSER_CHANNEL || 'chrome'});
+  const browser = await chromium.launch({headless:true, ...(process.env.QA_CHROME?{executablePath:process.env.QA_CHROME}:{channel:process.env.BROWSER_CHANNEL||'chrome'})});
   const checks = [], errors = [];
   try {
     for (const size of [{width:390,height:844},{width:1280,height:900}]) {

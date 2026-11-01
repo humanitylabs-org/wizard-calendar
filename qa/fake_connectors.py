@@ -37,7 +37,7 @@ class Handler(BaseHTTPRequestHandler):
         if MODE == 'configuration_error': return self.send({'error': 'google_configuration_required'}, 503)
         if self.path.endswith('/status'):
             accounts = [] if MODE == 'no_accounts' else [dict(a, calendar_allowed=MODE != 'denied') for a in ACCOUNTS]
-            return self.send({'client_configured': MODE != 'no_client', 'accounts': accounts, 'setup_url': '/wizard-connectors/'})
+            return self.send({'client_configured': MODE != 'no_client', 'accounts': accounts, 'setup_url': '/connected-accounts/'})
         if self.path.endswith('/calendars'):
             return self.send({'calendars': [{'account': a['account'], 'email': a['email'], 'id': 'primary', 'name': a['account'].title(), 'color': '#398abc' if MODE != 'recolor' else '#abcdef', 'primary': True, 'access_role': 'owner'} for a in ACCOUNTS]})
         if self.path.endswith('/events'):

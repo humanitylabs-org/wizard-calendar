@@ -5,6 +5,7 @@ Run in the durable light lane; Docker context must name an already-running daemo
 import io
 import json
 import os
+import platform
 from pathlib import Path
 import socket
 import subprocess
@@ -20,7 +21,7 @@ OUT = ROOT / '.runtime/sync-evidence'
 OUT.mkdir(parents=True, exist_ok=True)
 ENV = dict(os.environ)
 ENV['PATH'] = '/opt/homebrew/bin:/usr/local/bin:' + ENV.get('PATH', '')
-ENV.setdefault('DOCKER_CONTEXT', 'colima')
+if platform.system() == 'Darwin': ENV.setdefault('DOCKER_CONTEXT', 'colima')
 ENV['QA_OUT'] = str(OUT)
 LOG = []
 

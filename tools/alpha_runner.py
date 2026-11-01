@@ -5,6 +5,7 @@ Does not push images, create releases/tags, deploy, or contact owner services.
 import hashlib
 import json
 import os
+import platform
 from pathlib import Path
 import re
 import shlex
@@ -20,6 +21,8 @@ def main():
     arch = os.environ.get('ARCH', '')
     if arch not in ('amd64', 'arm64'):
         raise SystemExit('Set ARCH=amd64 or ARCH=arm64')
+    if {'x86_64': 'amd64', 'aarch64': 'arm64', 'arm64': 'arm64'}.get(platform.machine()) != arch:
+        raise SystemExit('Worker architecture must match requested architecture; never emulate')
     docker = shlex.split(os.environ.get('DOCKER_CMD', 'docker'))
     if not docker:
         raise SystemExit('DOCKER_CMD cannot be empty')
@@ -28,6 +31,8 @@ def main():
     def output(*args):
         return subprocess.check_output(list(args), cwd=root, text=True).strip()
     sha = output('git', 'rev-parse', 'HEAD')
+    if os.environ.get('SOURCE_REVISION', sha) != sha:
+        raise SystemExit('Staged source revision differs from admitted source')
     if output('git', 'status', '--porcelain', '--untracked-files=no'):
         raise SystemExit('Refusing a dirty tracked source checkout')
     match = re.search(r'^version: (\S+)$', (root / 'wizard.md').read_text(), re.M)

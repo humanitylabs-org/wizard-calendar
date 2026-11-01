@@ -26,7 +26,7 @@ SYNC_MINUTES = max(0.01, float(os.environ.get('CALENDAR_SYNC_MINUTES', '10')))
 SYNC_LOCK = threading.Lock()
 SYNC_WAKE = threading.Event()
 STATE = {'state': 'not_linked', 'last_success': None, 'last_error': None, 'accounts': [],
-         'calendar_errors': {}, 'setup_url': '/wizard-connectors/', 'syncing': False}
+         'calendar_errors': {}, 'setup_url': '/connected-accounts/', 'syncing': False}
 ZoneInfo(TZ)  # fail explicitly on an invalid deployment timezone
 CORE = Path(os.environ['WIZARD_CORE_DIR']).resolve() if os.environ.get('WIZARD_CORE_DIR') else None
 LOCAL_HOSTS = {f'127.0.0.1:{PORT}', f'localhost:{PORT}'} | set(filter(None, os.environ.get('WIZARD_LOCAL_HOSTS', '').split(',')))
@@ -270,7 +270,7 @@ def sync_once():
         for a in status['accounts']:
             if not isinstance(a, dict) or type(a.get('calendar_allowed')) is not bool: raise ValueError('invalid provider account')
             accounts.append({k: text(a.get(k), 'account.' + k, 300, True) for k in ('account', 'email', 'status')} | {'calendar_allowed': a['calendar_allowed']})
-        setup = status.get('setup_url', '/wizard-connectors/')
+        setup = status.get('setup_url', '/connected-accounts/')
         # Only an app path or a credential-free http(s) destination can reach the UI.
         if not isinstance(setup, str) or not (setup.startswith('/') and not setup.startswith('//') or urlsplit(setup).scheme in ('http', 'https') and urlsplit(setup).hostname and not urlsplit(setup).username and not urlsplit(setup).password): raise ValueError('invalid setup_url')
         set_state(accounts=accounts, setup_url=setup, last_error=None, calendar_errors={})
@@ -429,7 +429,7 @@ class Handler(BaseHTTPRequestHandler):
     def superseded_connect(self):
         return self.respond({'error': 'manual_google_linking_superseded',
             'message': 'Manual Google linking moved to Connected accounts. Open setup there; Calendar never accepts OAuth credentials.',
-            'setup_url': '/wizard-connectors/', 'superseded_by': 'Connected accounts'}, 410)
+            'setup_url': '/connected-accounts/', 'superseded_by': 'Connected accounts'}, 410)
 
     def do_GET(self):
         if not self.trusted(): return
@@ -438,7 +438,7 @@ class Handler(BaseHTTPRequestHandler):
         if p.rstrip('/') == '/api':
             return self.respond({'app': 'wizard-calendar', 'openapi_url': '/wizard-calendar/openapi.json',
                 'routes': ['/api/events', '/api/health', '/api/sync', '/api/import', '/api/export', '/api/preferences/import', '/api/calendars/visibility'],
-                'superseded': {'/api/connect/start': '/wizard-connectors/', '/api/connect/finish': '/wizard-connectors/'}})
+                'superseded': {'/api/connect/start': '/connected-accounts/', '/api/connect/finish': '/connected-accounts/'}})
         if p in ('/healthz', '/api/health'):
             return self.respond({'ok': True, 'app': 'wizard-calendar', 'version': VERSION, 'mode': read().get('source', 'empty'), 'configured': bool(read()['calendars']), 'sync': sync_status()})
         if p == '/api/sync': return self.respond(sync_status())

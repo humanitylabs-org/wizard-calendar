@@ -4,7 +4,7 @@ const path=require('node:path');
 const base=process.env.CALENDAR_URL||'http://127.0.0.1:18787';
 const url=base+'/wizard-calendar/';
 const shots=process.env.QA_OUT||path.join(__dirname,'../evidence');
-async function launch(){return chromium.launch({headless:true,channel:process.env.BROWSER_CHANNEL||'chrome'});}
+async function launch(){return chromium.launch({headless:true,...(process.env.QA_CHROME?{executablePath:process.env.QA_CHROME}:{channel:process.env.BROWSER_CHANNEL||'chrome'})});}
 async function seed(request){
  const today=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Bangkok',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
  const plus=n=>new Date(Date.parse(today+'T12:00:00Z')+n*864e5).toISOString().slice(0,10);

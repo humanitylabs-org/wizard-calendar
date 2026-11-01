@@ -12,7 +12,7 @@ const shared={'skins.js':'57cfe09a435b67fdee38a33b060ed3038ef858b1037df11cef38a9
   const r=await fetch(`https://raw.githubusercontent.com/humanitylabs-org/wizard-ux/${rev}/web/core/${name}`);assert.ok(r.ok);
   const text=await r.text();assert.equal(crypto.createHash('sha256').update(text).digest('hex'),digest);resources[name]=text;
  }
- const browser=await chromium.launch({headless:true,channel:process.env.BROWSER_CHANNEL||'chrome'}),checks=[],errors=[];
+ const browser=await chromium.launch({headless:true,...(process.env.QA_CHROME?{executablePath:process.env.QA_CHROME}:{channel:process.env.BROWSER_CHANNEL||'chrome'})}),checks=[],errors=[];
  try{
   for(const width of [390,1280]){
    const context=await browser.newContext({viewport:{width,height:width===390?844:900},isMobile:width===390,hasTouch:width===390,deviceScaleFactor:1,timezoneId:'Pacific/Honolulu',...(width===390?{userAgent:'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36'}:{})});
@@ -41,7 +41,7 @@ const shared={'skins.js':'57cfe09a435b67fdee38a33b060ed3038ef858b1037df11cef38a9
     assert.equal(await frame.evaluate(()=>window.__setupIdentity),docIdentity);
     assert.equal(await frame.evaluate(()=>getComputedStyle(document.body).backgroundColor),'rgba(0, 0, 0, 0)');
     const link=frame.locator('[data-setup] [data-connect]');
-    assert.equal(await link.getAttribute('target'),'_top');assert.equal(await link.getAttribute('href'),'/wizard-connectors/');
+    assert.equal(await link.getAttribute('target'),'_top');assert.equal(await link.getAttribute('href'),'/connected-accounts/');
     const metrics=await link.evaluate(el=>{
      const s=getComputedStyle(el),rect=el.getBoundingClientRect(),c=document.createElement('canvas').getContext('2d');
      function lum(color){c.fillStyle=color;c.fillRect(0,0,1,1);return [...c.getImageData(0,0,1,1).data].slice(0,3).map(v=>{v/=255;return v<=.04045?v/12.92:((v+.055)/1.055)**2.4}).reduce((v,n,i)=>v+n*[.2126,.7152,.0722][i],0)}
@@ -60,8 +60,8 @@ const shared={'skins.js':'57cfe09a435b67fdee38a33b060ed3038ef858b1037df11cef38a9
    await page.unroute('**/api/events');
    await context.request.post(base+'/api/import',{data:JSON.parse(fs.readFileSync(path.join(__dirname,'../fixtures/empty.json')))});
    await frame.goto(base+'/wizard-calendar/');await frame.waitForSelector('[data-setup]:not([hidden])');
-   await page.route(base+'/wizard-connectors/',r=>r.fulfill({contentType:'text/html',body:'<h1>Connected accounts fallback destination (QA)</h1>'}));
-   await frame.locator('[data-setup] [data-connect]').click();await page.waitForURL(base+'/wizard-connectors/');
+   await page.route(base+'/connected-accounts/',r=>r.fulfill({contentType:'text/html',body:'<h1>Connected accounts fallback destination (QA)</h1>'}));
+   await frame.locator('[data-setup] [data-connect]').click();await page.waitForURL(base+'/connected-accounts/');
    await context.close();
   }
   assert.deepEqual(errors,[]);assert.equal(checks.length,8);

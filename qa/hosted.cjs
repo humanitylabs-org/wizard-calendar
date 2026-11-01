@@ -12,7 +12,7 @@ const shared={'skins.js':'57cfe09a435b67fdee38a33b060ed3038ef858b1037df11cef38a9
    const r=await fetch(`https://raw.githubusercontent.com/humanitylabs-org/wizard-ux/${revision}/web/core/${name}`);
    assert.ok(r.ok); const text=await r.text(); assert.equal(crypto.createHash('sha256').update(text).digest('hex'),digest); resources[name]=text;
  }
- const browser=await chromium.launch({headless:true,channel:'chrome'});
+ const browser=await chromium.launch({headless:true,...(process.env.QA_CHROME?{executablePath:process.env.QA_CHROME}:{channel:'chrome'})});
  const checks=[], errors=[];
  try {
   const mobile=process.env.QA_MOBILE==='1';
