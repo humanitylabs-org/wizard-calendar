@@ -238,7 +238,7 @@
   }
 
   const setupMessages = {
-    not_linked: 'Link Calendar to Connected accounts in Wizard permissions, then set up Google there.',
+    not_linked: 'Connect your Google account in Connected accounts, then turn on Calendar for it.',
     needs_google_app: 'Add your own Google OAuth app once in Connected accounts. Calendar never receives your Google credentials.',
     needs_account: 'Your Google app is ready. Sign in to your Google account in Connected accounts.',
     needs_permission: 'Allow read-only calendar access or reconnect the account in Connected accounts.',
@@ -252,7 +252,7 @@
     $('[data-setup]').hidden = !empty;
     if (empty) {
       $('[data-scroll]').hidden = true; $('[data-time]').hidden = true;
-      $('[data-setup]').innerHTML = `<h1>Connect your Google calendar</h1><p>${esc(setupMessages[doc.sync?.state] || setupMessages.not_linked)}</p><p>One-time setup: bring your own Google OAuth app, then connect your accounts. Events sync automatically and stay read-only.</p>${setupLink()}<button class="lnk" data-cals>Settings · import a snapshot instead</button>`;
+      $('[data-setup]').innerHTML = `<h1>Connect your Google calendar</h1><p>${esc(setupMessages[doc.sync?.state] || setupMessages.not_linked)}</p><p>Your events sync automatically. Calendar only reads them, never changes them.</p>${setupLink()}<button class="lnk" data-cals>Settings · import a snapshot instead</button>`;
     }
     $('[data-status]').textContent = empty ? 'No calendar connected' : `${doc.events.length} visible events · ${TZ}`;
   }
