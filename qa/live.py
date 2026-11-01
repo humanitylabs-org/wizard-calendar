@@ -123,7 +123,7 @@ def main():
 
         owner = {'Origin': f'http://{host}', 'Sec-Fetch-Site': 'same-origin', 'X-Wizard-Request': 'calendar'}
         status, health = req('/healthz')
-        check('health reports 0.3.0', status == 200 and health['version'] == '0.3.0')
+        check('health reports 0.3.1', status == 200 and health['version'] == '0.3.1')
         status, live = req('/api/live')
         check('both sources connected', status == 200 and live['connected'] and len(live['sources']) == 2)
         status, view = req('/api/events?from=2026-10-12&to=2026-12-21')
@@ -160,6 +160,16 @@ def main():
         check('owner page reads with the grant', [c for c in g.calls if c[0] == 'calendar_list_events'][-1][3] == 'grant-google-0123456789')
         check('owner sees both suggestions', sorted(x['source'] for x in view['suggestions']) == ['google', 'microsoft']
               and view['suggestions'][0]['title'] == 'Gym' and view['suggestions'][0]['account'].startswith('live:'))
+        reads = len([c for c in g.calls + m.calls if c[0] == 'calendar_list_events'])
+        status, value = req('/api/live/suggestions', None, {'X-Wizard-Request': 'calendar'})
+        check('open page polls suggestions alone', status == 200 and sorted(x['source'] for x in value['suggestions']) == ['google', 'microsoft']
+              and value['suggestions'] == view['suggestions'])
+        check('polling reads no calendars', len([c for c in g.calls + m.calls if c[0] == 'calendar_list_events']) == reads)
+        check('polling reads with the grant', [c for c in g.calls if c[0] == 'calendar_suggestions'][-1][3] == 'grant-google-0123456789')
+        for name, headers in (('agents', {}), ('bearer', {'X-Wizard-Request': 'calendar', 'Authorization': 'Bearer x'}),
+                              ('cross-site', {'X-Wizard-Request': 'calendar', 'Sec-Fetch-Site': 'cross-site'})):
+            status, value = req('/api/live/suggestions', None, headers)
+            check(f'suggestion poll refused: {name}', status == 403 and (value.get('code') == 'owner_only' or value.get('error') == 'untrusted_host_or_site'))
         check('agent levels shown', {a['source']: a['level'] for a in view['agentAccess']} == {'google': 'suggest_only', 'microsoft': 'suggest_only'})
         sg = [x for x in view['suggestions'] if x['source'] == 'google'][0]
         status, value = req('/api/live/suggestions/approve', {'source': 'google', 'id': sg['id']}, {k: v for k, v in owner.items() if k != 'Origin'})

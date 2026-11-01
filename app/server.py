@@ -36,7 +36,7 @@ SYNC_INTERVAL = max(0, int(os.environ.get('ICAL_SYNC_INTERVAL', '900')))
 MAX_BYTES = 4 * 1024 * 1024
 MAX_SOURCES = 20
 WEB = {'index.html', 'app.js', 'app.css', 'icon.svg', 'connect.js', 'settings.js'}
-VERSION = '0.3.0'
+VERSION = '0.3.1'
 # The owner: the Wizard shell's Tailscale login (one login, and his when WIZARD_OWNER_LOGINS names it). Owner routes are
 # refused on the box-local hosts (agents) unless a scratch QA server opts into a loopback single-owner dev mode.
 SHELL_AUTH = os.environ.get('WIZARD_SHELL_AUTH', 'tailscale-serve')
@@ -479,6 +479,14 @@ class Handler(BaseHTTPRequestHandler):
             query = dict(item.split('=', 1) for item in urlsplit(self.path).query.split('&') if '=' in item)
             try:
                 return self.respond(view(query.get('from'), query.get('to'), live.OWNER if self.owner() else None))
+            except live.LiveError as exc:
+                return self.respond({'error': exc.message, 'code': exc.code}, exc.status)
+        if path == '/api/live/suggestions':
+            # The open page polls this so a new suggestion shows without a reload; owner only, no calendar reads.
+            if not self.owner():
+                return self.respond({'error': 'Only your own Calendar page can list suggestions.', 'code': 'owner_only'}, 403)
+            try:
+                return self.respond({'suggestions': LIVE.pending() if LIVE is not None else []})
             except live.LiveError as exc:
                 return self.respond({'error': exc.message, 'code': exc.code}, exc.status)
         if path == '/api/live':

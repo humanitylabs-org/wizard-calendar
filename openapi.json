@@ -2,7 +2,7 @@
   "openapi": "3.0.3",
   "info": {
     "title": "Wizard Calendar API",
-    "version": "0.3.0"
+    "version": "0.3.1"
   },
   "paths": {
     "/healthz": {
@@ -247,6 +247,19 @@
         "responses": {
           "200": {
             "description": "Sources and accounts"
+          }
+        }
+      }
+    },
+    "/api/live/suggestions": {
+      "get": {
+        "summary": "The agents' pending suggestions, for the owner's own Calendar page only (X-Wizard-Request: calendar); the open page polls this.",
+        "responses": {
+          "200": {
+            "description": "{suggestions: [...]}"
+          },
+          "403": {
+            "description": "Not the owner's page"
           }
         }
       }

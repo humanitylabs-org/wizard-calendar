@@ -373,6 +373,12 @@ class Live:
         items.sort(key=lambda x: x['created'])
         return items
 
+    def pending(self):
+        """Only the owner's pending suggestions (status + the source apps' local suggestion lists; no calendar reads),
+        so an open Calendar page can poll for new ones cheaply."""
+        usable = {s['id'] for s in self.status(OWNER)['sources'] if s['available']}
+        return self.suggestions(usable) if usable else []
+
     def _suggestion(self, body):
         sid, item = body.get('source'), body.get('id')
         if sid not in self.sources or not isinstance(item, str) or not SUGGESTION_ID.fullmatch(item):

@@ -437,6 +437,7 @@
     const key = approve ? btn.dataset.sgApprove : btn.dataset.sgDismiss;
     const s = pending().find((x) => sgKey(x) === key); if (!s) return;
     const acts = btn.parentElement; for (const b of acts.children) b.disabled = true;
+    deciding++; sgGen++;
     btn.textContent = approve ? 'Approving…' : 'Dismissing…';
     const err = $('[data-sg-err]'); if (err) err.textContent = '';
     try {
@@ -450,7 +451,28 @@
       for (const b of acts.children) b.disabled = false;
       btn.textContent = approve ? 'Approve' : 'Dismiss';
       if (sheetOpen) say(e.message); else if (err) err.textContent = e.message;
-    }
+    } finally { deciding--; sgGen++; }
+  }
+
+  // An agent can suggest while this window stays open and visible (no visibilitychange then): poll the suggestions
+  // alone (the source apps' own lists, no calendar reads) on focus and every 30 s, and redraw only the banner.
+  let deciding = 0, sgGen = 0, sgBusy = false;
+  const sgSig = (list) => list.map((s) => `${sgKey(s)}@${s.created}`).join('|');
+  async function refreshSugg() {
+    if (!doc || document.hidden || deciding || sgBusy) return;
+    sgBusy = true;
+    const gen = sgGen;
+    try {
+      const r = await fetch('api/live/suggestions', { cache: 'no-store', credentials: 'same-origin', headers: { 'X-Wizard-Request': 'calendar' } });
+      if (!r.ok) return;
+      const d = await r.json(), list = Array.isArray(d.suggestions) ? d.suggestions : null;
+      if (!list || !doc || deciding || gen !== sgGen || sgSig(list) === sgSig(pending())) return;
+      const known = new Set(pending().map(sgKey));
+      doc.suggestions = list;
+      renderSugg();
+      // A suggested change to an event this page has not loaded yet: fetch the view once so the banner can name it.
+      if (!sheetOpen && list.some((s) => !known.has(sgKey(s)) && s.action !== 'create' && !sgEvent(s))) load(false).catch(() => {});
+    } catch { /* offline for a moment: the next tick retries */ } finally { sgBusy = false; }
   }
 
   function showSheet() { const sh = $('[data-sheet]'); sh.hidden = false; sh.setAttribute('role', 'dialog'); sh.setAttribute('aria-modal', 'true'); $('[data-sheet-back]').hidden = false; }
@@ -460,7 +482,7 @@
     document.querySelector('[data-status]').textContent = 'Wizard core is missing. Follow the standalone setup in README.md.';
     return;
   }
-  WizardApp.ready({ name: 'Calendar', version: '0.3.0' });
+  WizardApp.ready({ name: 'Calendar', version: '0.3.1' });
 
   // Settings: Connected accounts + Agent access (settings.js, Mail's and Messenger's design), then private iCal links
   // and the snapshot (read-only). The private iCal URL is submitted once and never rendered back into the page.
@@ -656,7 +678,7 @@
       if (!r.ok) throw new Error(`Load failed (${r.status})`);
       const d = await r.json();
       if (d.timezone) TZ = d.timezone;
-      doc = d; range = d.liveRange || null;
+      doc = d; range = d.liveRange || null; sgGen++;
       if (!sel) sel = todayKey();
       if (!view) view = [+sel.slice(0, 4), +sel.slice(5, 7) - 1];
       render();
@@ -675,4 +697,6 @@
   setInterval(() => { renderTodayBtn(); if (doc && mode !== 'month') renderTime(); }, 60e3);
   WizardApp.theme.onChange(() => { if (doc) render(); });
   document.addEventListener('visibilitychange', () => { if (!document.hidden) load(false).catch(() => {}); });
+  window.addEventListener('focus', () => { refreshSugg(); });
+  setInterval(refreshSugg, 30e3);
 })();
