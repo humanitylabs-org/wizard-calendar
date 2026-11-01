@@ -3,15 +3,15 @@
   "id": "wizard-calendar",
   "wizard_type": "service",
   "available": true,
-  "short_desc": "Empty calendar viewer with explicit snapshot import.",
+  "short_desc": "Read-only calendar synced through Connected accounts.",
   "author": "Humanity Labs",
   "port": 8799,
   "categories": [
     "utilities"
   ],
-  "description": "Private test release. Provider connector setup required; see OSCAR-SETUP.md.",
+  "description": "Alpha test release. Link Google in Connected accounts; see OSCAR-SETUP.md.",
   "tipi_version": 1,
-  "version": "0.1.0",
+  "version": "0.3.0-alpha.1",
   "source": "https://github.com/humanitylabs-org/wizard-calendar",
   "exposable": false,
   "supported_architectures": [
@@ -30,6 +30,7 @@
       "env_variable": "CALENDAR_TIMEZONE",
       "label": "Owner timezone (IANA name, optional)",
       "required": false,
+      "default": "",
       "hint": "For example Asia/Bangkok. Leave empty to display each browser's timezone; sync window then uses UTC."
     }
   ],

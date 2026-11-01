@@ -1,11 +1,14 @@
 # Set up Calendar with Connected accounts
 
 Calendar is a read-only viewer. Google OAuth clients, refresh tokens and consent live
-only in **Connected accounts** (`wizard-connectors`), never in Calendar.
+only in **Connected accounts** (`connected-accounts`, formerly `wizard-connectors`), never in Calendar.
 
 1. Install Connected accounts and Calendar on your Wizard.
-2. Approve Calendar → Connected accounts in Wizard app permissions. `uses` offers
-   compatibility, not permission: a missing/revoked grant makes no provider calls.
+2. Calendar declares `uses: [connected-accounts]`. Current WAM creates the declared
+   connection automatically once both apps are installed. Approve it in App Manager →
+   Connections only if pending (sensitive provider) or explicitly reconnect it after a
+   denial. Older proposal-based installs may ask for approval. A missing/revoked grant
+   makes no provider calls. See ALPHA-RELEASE.md for source evidence.
 3. Open Calendar → **Open Connected accounts**. Add your own Google OAuth app there
    once, following that app's redirect/consent instructions. Never paste credentials,
    OAuth callbacks or verification codes into agent chat or Calendar.
@@ -20,11 +23,13 @@ parent directory read-only at `/wizard` (so atomic replacement and key rotation 
 and sets `WIZARD_GRANTS_FILE=/wizard/grants.json`. The app recipe declares no grants
 mount. The canonical caller is `wizard-calendar`, not the legacy launcher id
 `calendar`. The outgoing key may be stored under
-`wizard-connectors` or `slot:calendar-source`; every provider call sends `X-Wizard-Grant`.
+`connected-accounts` (new installs), `wizard-connectors` or `slot:calendar-source`
+(compatibility); every provider call sends `X-Wizard-Grant`.
 Calendar never logs or exports that key. `enforce: false` does not authorize calls without
 an outgoing grant. Missing/malformed file, key or endpoint yields `not_linked`.
 
-Provider URL precedence: grants `provider_endpoints["wizard-connectors"]`, then
+Provider URL precedence: grants `provider_endpoints["connected-accounts"]`, then
+`provider_endpoints["wizard-connectors"]`, then
 `provider_endpoints["slot:calendar-source"]`, then `CONNECTORS_URL`. No guessed Docker
 container hostname is baked in. Do not use the provider's internal service URL as an
 owner-facing link. Its status response supplies `setup_url` (default app path
@@ -35,8 +40,8 @@ link uses `target=_top`, an EXTEND candidate rather than a shell fork.
 
 The in-process worker syncs on startup, every `CALENDAR_SYNC_MINUTES` (default 10),
 and after `POST /api/sync {}` (202; poll GET `/api/sync` until `syncing` is false).
-It calls status → calendars → events for each calendar over today minus 30 days to
- today plus 180 days. No Google SDK, gog binary, cron job or external import is required.
+It calls status → calendars → events for each calendar over today minus 60 days to
+today plus 400 days, split into two bounded requests. No Google SDK, gog binary, cron job or external import is required.
 The backend window uses `CALENDAR_TIMEZONE`, default UTC. If that environment variable
 is unset/empty, the UI displays in the browser's timezone; explicitly setting an IANA
 zone makes all viewers use it. Snapshot `timezone` remains the server/window zone.
@@ -45,7 +50,8 @@ Snapshots use the same `validate()` + atomic `save()` path as manual imports. Ex
 calendar colors and hidden preferences survive; new calendars are visible and retain
 Google's #RRGGBB color, or use skin palette tokens if absent. IDs are stable hashes of
 (account, provider calendar ID), not email addresses embedded in public URLs.
-Events dedupe across calendars/accounts by normalized (title, start instant, end instant).
+Events dedupe across calendars/accounts by normalized (title, start instant) or
+(iCalUID, start instant).
 Cancelled events are omitted; all-day end dates are exclusive. Raw validated per-calendar
 rows stay private in the snapshot cache to retain last-good data on partial failures.
 A failed calendar keeps its previous events and exposes a per-calendar error; truncated

@@ -94,14 +94,16 @@ def compose_tests():
     recipe = json.loads((ROOT / 'runtipi/docker-compose.yml').read_text())
     assert all('/wizard' not in v for v in recipe['services']['wizard-calendar']['volumes']), 'Grants mount belongs to WAM'
     image = recipe['services']['wizard-calendar']['image']
+    run(['docker', 'image', 'inspect', image])  # Preload the approved native Alpha image first.
     names = {key: project + '_' + key for key in ('data', 'source', 'core', 'grants')}
-    volumes = [{'type': 'volume', 'source': key, 'target': target, 'read_only': key != 'data'} for key, target in [('data', '/data'), ('source', '/app'), ('core', '/core'), ('grants', '/wizard')]]
+    volumes = [{'type': 'volume', 'source': key, 'target': target, 'read_only': key != 'data'} for key, target in [('data', '/data'), ('core', '/core'), ('grants', '/wizard')]]
     override = {'services': {
+        'calendar-data-init': {'volumes': [{'type': 'volume', 'source': 'data', 'target': '/data'}]},
         'wizard-calendar': {'environment': {'WIZARD_CORE_DIR': '/core', 'WIZARD_TRUSTED_HOSTS': '127.0.0.1:' + str(p), 'WIZARD_TRUSTED_ORIGINS': base, 'CALENDAR_SYNC_MINUTES': '0.01', 'WIZARD_GRANTS_FILE': '/wizard/grants.json'}, 'ports': ['127.0.0.1:' + str(p) + ':8799'], 'volumes': volumes},
         'fake-connectors': {'image': image, 'read_only': True, 'user': '1000:1000', 'environment': {'PYTHONDONTWRITEBYTECODE': '1'}, 'command': ['python', '/app/qa/fake_connectors.py'], 'volumes': ['source:/app:ro'], 'ports': ['127.0.0.1:' + str(fp) + ':8800']}},
         'volumes': {key: {'name': name, 'external': True} for key, name in names.items()}}
     path = OUT / 'compose.override.json'; path.write_text(json.dumps(override, indent=2))
-    ENV.update(APP_DATA_DIR=str(OUT / 'unused'), APP_SOURCE_DIR=str(ROOT), APP_PORT=str(p))
+    ENV.update(APP_DATA_DIR=str(OUT / 'unused'), APP_PORT=str(p))
     cmd = ['docker', 'compose', '-p', project, '-f', str(ROOT / 'runtipi/docker-compose.yml'), '-f', str(path)]
     helper = ['docker', 'run', '--rm', '-i', '--network', 'none', '--user', '0:0']
     for key, name in names.items():
@@ -110,12 +112,12 @@ def compose_tests():
     helper += [image, 'python', '-c']
     archive = io.BytesIO()
     with tarfile.open(fileobj=archive, mode='w') as bundle:
-        for name in ['app/server.py', 'openapi.json', 'qa/fake_connectors.py'] + sorted('web/' + x.name for x in (ROOT / 'web').iterdir() if x.is_file()): bundle.add(ROOT / name, arcname=name)
+        bundle.add(ROOT / 'qa/fake_connectors.py', arcname='qa/fake_connectors.py')
     # Pipe bytes directly: no host checkout bind is required inside the Colima VM.
     subprocess.run(helper + ["import sys,tarfile,os; tarfile.open(fileobj=sys.stdin.buffer,mode='r|').extractall('/source',filter='data'); os.chown('/data',0,0)"], input=archive.getvalue(), env=ENV, check=True)
     subprocess.run(helper + ["import sys; from pathlib import Path; Path('/core/app-client.js').write_bytes(sys.stdin.buffer.read())"], input=(ROOT / '.runtime/core/app-client.js').read_bytes(), env=ENV, check=True)
     def grant(key):
-        body = {'outgoing': {'wizard-connectors': key}, 'provider_endpoints': {'wizard-connectors': 'http://fake-connectors:8800'}, 'incoming': [], 'enforce': True}
+        body = {'outgoing': {'connected-accounts': key}, 'provider_endpoints': {'connected-accounts': 'http://fake-connectors:8800'}, 'incoming': [], 'enforce': True}
         subprocess.run(helper + ["import sys; from pathlib import Path; p=Path('/grants/grants.tmp'); p.write_bytes(sys.stdin.buffer.read()); p.chmod(0o644); p.replace('/grants/grants.json')"], input=json.dumps(body).encode(), env=ENV, check=True)
     checks = []
     try:
@@ -126,7 +128,7 @@ def compose_tests():
         status = request(base, '/api/sync')[1]
         doc = request(base, '/api/export')[1]
         assert len(doc['events']) == 3 and len(doc['calendars']) == 2 and len(status['accounts']) == 2
-        checks.append('actual Runtipi python:3.12-alpine recipe + fake provider on same Compose network; multi-account sync and dedupe')
+        checks.append('actual Runtipi Alpha image recipe + fake provider on same Compose network; multi-account sync and dedupe')
         calls = request(fake, '/__qa/calls')[1]
         assert calls and all(c['grant_valid'] for c in calls)
         assert any(c['path'].endswith('/events') for c in calls)
@@ -163,12 +165,12 @@ def compose_tests():
         cid = run(cmd + ['ps', '-q', 'wizard-calendar']).strip()
         inspect = json.loads(run(['docker', 'inspect', cid]))[0]
         assert inspect['HostConfig']['ReadonlyRootfs']
-        assert inspect['Config']['User'] == recipe['services']['wizard-calendar']['user'] == '0:0'
+        assert inspect['Config']['User'] == recipe['services']['wizard-calendar']['user'] == '1000:1000'
         assert inspect['HostConfig']['CapDrop'] == ['ALL']
         assert any(m['Destination'] == '/wizard' and not m['RW'] for m in inspect['Mounts'])
         assert any(m['Destination'] == '/data' and m['RW'] for m in inspect['Mounts'])
         run(['docker', 'exec', cid, 'python', '-c', 'import sys; print(sys.version)'])
-        checks.append('unchanged recipe root user with ALL caps dropped, read-only root and grant mount, writable /data verified by Docker inspect')
+        checks.append('non-root 1000:1000 with ALL caps dropped, read-only root and grant mount, writable /data verified by Docker inspect')
         result = {'ok': True, 'image': image, 'project': project, 'count': len(checks), 'checks': checks, 'initial_sync': status, 'grant_checks': calls}
         (OUT / 'compose.json').write_text(json.dumps(result, indent=2)); print(json.dumps(result, indent=2), flush=True)
     finally:

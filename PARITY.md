@@ -43,4 +43,4 @@ On disposable Thales checkout with Colima running and scratch/mounts under `~/.c
 python3 qa/thales_sync.py
 ```
 
-This runs unit/connector/API, standalone browser, desktop+phone pinned shared host, setup-card, all three ported legacy suites and actual source-package Compose/provider tests. `qa/container_release.py` is a historical dual-architecture image export tool pinned to a previous release branch, not a source-package regression suite and is not used for this cutover.
+After preloading the approved native Alpha image, this runs unit/connector/API, standalone browser, desktop+phone pinned shared host, setup-card, all three ported legacy suites and actual image-recipe Compose/provider tests. `qa/container_release.py` now delegates to the native-only Alpha runner; see ALPHA-RELEASE.md. Container/browser acceptance was not executed during Alpha source preparation.

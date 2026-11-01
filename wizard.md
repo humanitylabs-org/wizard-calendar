@@ -4,12 +4,12 @@ id: wizard-calendar
 name: Calendar
 type: service
 category: app
-version: 0.1.0
+version: 0.3.0-alpha.1
 summary: Read-only calendar views synced through Connected accounts; bring your own Google OAuth app once.
 license: MIT
 source: https://github.com/humanitylabs-org/wizard-calendar
 runtime:
-  package: source
+  package: image
   kind: runtipi
   config: runtipi/config.json
   compose: runtipi/docker-compose.yml
@@ -31,7 +31,7 @@ view:
     dist: web
 provides: [calendar-viewing, calendar-import, calendar-sync]
 system: false
-uses: [wizard-connectors]
+uses: [connected-accounts]
 needs: []
 health: /healthz
 ---
@@ -42,4 +42,6 @@ Empty by default. No provider credentials or account configuration are included.
 API and MCP read a local snapshot; provider authorization happens outside this app.
 See OSCAR-SETUP.md for Connected accounts setup, grant routing and the manual snapshot contract.
 The Wizard gateway must serve its approved shared app-client.js resource. A standalone
-install uses tools/run_portable.py without an app image build. Not a public store listing.
+install uses tools/run_portable.py with the preloaded Alpha image.
+The default gateway path is /wizard-calendar/ (the server accepts this prefix and /).
+See ALPHA-RELEASE.md for image packaging, grant policy and verification boundaries.

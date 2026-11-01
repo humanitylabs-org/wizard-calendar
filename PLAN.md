@@ -6,7 +6,7 @@ Reuse:
 - EXTEND candidate: WizardApp.nav has no openApp; use provider setup_url with target=_top. No shell changes.
 - EXTEND Calendar domain worker, sync diagnostics and Settings; no OAuth or shell implementation in Calendar.
 
-Acceptance: stdlib fake-provider tests, API regression, Thales browser matrix (phone/desktop, light/dark), actual source-package Runtipi Compose + fake provider/header proof. Public branch and PR only; no owner service writes. Backend timezone UTC unless configured, UI browser timezone unless configured.
+Acceptance: stdlib fake-provider tests, API regression, Thales browser matrix (phone/desktop, light/dark), actual image-package Runtipi Compose + fake provider/header proof. Public branch and PR only; no owner service writes. Backend timezone UTC unless configured, UI browser timezone unless configured.
 
 ## Legacy parity restoration
 Source of truth: the supplied live legacy tree, including its dirty view changes (read-only).

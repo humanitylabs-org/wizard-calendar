@@ -15,6 +15,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
+VERSION = '0.3.0-alpha.1'
 ROOT = Path(__file__).resolve().parents[1]
 DATA = Path(os.environ.get('DATA_DIR', './data')).resolve()
 PORT = int(os.environ.get('PORT', '8799'))
@@ -31,7 +32,9 @@ CORE = Path(os.environ['WIZARD_CORE_DIR']).resolve() if os.environ.get('WIZARD_C
 LOCAL_HOSTS = {f'127.0.0.1:{PORT}', f'localhost:{PORT}'} | set(filter(None, os.environ.get('WIZARD_LOCAL_HOSTS', '').split(',')))
 # Owner-facing hosts are added to, never replace, the local agent route (MCP over loopback / the app network).
 HOSTS = set(filter(None, os.environ.get('WIZARD_TRUSTED_HOSTS', '').split(','))) | LOCAL_HOSTS
-ORIGINS = set(filter(None, os.environ.get('WIZARD_TRUSTED_ORIGINS', '').split(','))) or {f'http://{h}' for h in HOSTS}
+# Without an explicit override, browser Origins must match the validated Host.
+# Both HTTP loopback and HTTPS gateway origins work without an owner-specific URL.
+ORIGINS = set(filter(None, os.environ.get('WIZARD_TRUSTED_ORIGINS', '').split(',')))
 LOCK = threading.RLock()
 MAX_BYTES = 4 * 1024 * 1024
 WEB = {'index.html', 'app.js', 'app.css', 'icon.svg', 'wizard-appearance.js'}
@@ -411,7 +414,8 @@ class Handler(BaseHTTPRequestHandler):
     def trusted(self):
         if self.headers.get('Host') not in HOSTS or self.headers.get('Sec-Fetch-Site') == 'cross-site':
             self.respond({'error': 'untrusted_host_or_site'}, 403); return False
-        if self.headers.get('Origin') and self.headers['Origin'] not in ORIGINS:
+        origins = ORIGINS or {f'{scheme}://{self.headers.get("Host")}' for scheme in ('http', 'https')}
+        if self.headers.get('Origin') and self.headers['Origin'] not in origins:
             self.respond({'error': 'untrusted_origin'}, 403); return False
         return True
 
@@ -436,7 +440,7 @@ class Handler(BaseHTTPRequestHandler):
                 'routes': ['/api/events', '/api/health', '/api/sync', '/api/import', '/api/export', '/api/preferences/import', '/api/calendars/visibility'],
                 'superseded': {'/api/connect/start': '/wizard-connectors/', '/api/connect/finish': '/wizard-connectors/'}})
         if p in ('/healthz', '/api/health'):
-            return self.respond({'ok': True, 'app': 'wizard-calendar', 'version': '0.1.0', 'mode': read().get('source', 'empty'), 'configured': bool(read()['calendars']), 'sync': sync_status()})
+            return self.respond({'ok': True, 'app': 'wizard-calendar', 'version': VERSION, 'mode': read().get('source', 'empty'), 'configured': bool(read()['calendars']), 'sync': sync_status()})
         if p == '/api/sync': return self.respond(sync_status())
         if p == '/api/events': return self.respond(view())
         if p == '/api/export': return self.respond(read())
@@ -482,7 +486,7 @@ class Handler(BaseHTTPRequestHandler):
         method, rid = req.get('method'), req.get('id')
         if method == 'notifications/initialized': return self.respond({}, 202)
         result = None
-        if method == 'initialize': result = {'protocolVersion': '2024-11-05', 'capabilities': {'tools': {}}, 'serverInfo': {'name': 'wizard-calendar', 'version': '0.1.0'}}
+        if method == 'initialize': result = {'protocolVersion': '2024-11-05', 'capabilities': {'tools': {}}, 'serverInfo': {'name': 'wizard-calendar', 'version': VERSION}}
         elif method == 'tools/list': result = {'tools': [{'name': name, 'description': description, 'inputSchema': {'type': 'object', 'properties': {}, 'additionalProperties': False}, 'annotations': {'readOnlyHint': True}} for name, description in [('calendar_events', 'Read visible events from the local snapshot.'), ('sync_status', 'Read Connected accounts sync health, setup state and last success.')]]}
         elif method == 'tools/call' and isinstance(req.get('params'), dict) and req['params'].get('name') == 'calendar_events': result = {'content': [{'type': 'text', 'text': json.dumps(view())}], 'isError': False}
         elif method == 'tools/call' and isinstance(req.get('params'), dict) and req['params'].get('name') == 'sync_status': result = {'content': [{'type': 'text', 'text': json.dumps(sync_status())}], 'isError': False}

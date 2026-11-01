@@ -1,4 +1,4 @@
-# Calendar — private test release 0.1.0
+# Calendar — Alpha test release 0.3.0-alpha.1
 
 Day, Week and Month views, synced in-app through **Connected accounts**. Fresh installs
 start with **Connect your Google calendar**: bring your own Google OAuth app once in
@@ -26,36 +26,38 @@ the next successful connected sync replaces manual data.
 Live parity details, QA and the coordinated provider prerequisite for notes/Meet/guest
 counts are in [PARITY.md](PARITY.md). A lexical parity PASS alone does not authorize cutover.
 
-## Install independently — no app image build
+## Alpha image install
 
-Prerequisites: Docker with Compose v2, Python 3.10+, network access for the pinned Python
-base image and shared WizardApp client. No other running apps or Google account needed.
-Extract the source release or clone this private repository at its exact test-release tag.
-Then:
+The Store recipe uses the fixed **`wizard-calendar:0.3.0-alpha.1`** image with
+`pull_policy: never`. The Alpha installer must verify and load the matching native
+image archive before starting the recipe. No source checkout is mounted at `/app`.
+See [ALPHA-RELEASE.md](ALPHA-RELEASE.md) for the prepared worker runner and release gates.
+
+For a disposable standalone test after loading the image, run:
 
 ```sh
 python3 tools/run_portable.py start
-curl --fail http://127.0.0.1:18787/healthz
-curl --fail http://127.0.0.1:18787/api/events
+curl --fail http://127.0.0.1:18787/wizard-calendar/healthz
 ```
 
-Open **http://127.0.0.1:18787/**. It must show “Connect your Google calendar.” Both events and calendars
-must be empty. The helper runs the same source recipe on a pinned public Python base
-image: no unpublished app image and no compiler/build toolchain are needed. It copies
-runtime source into a content-addressed named volume mounted read-only at `/app`.
-It separately fetches the approved shared client, verifies its SHA256, and installs it in
-an app-specific core volume. It prepares writable app-data for the recipe user (root, with all capabilities dropped). These
-volumes work with Docker Desktop, Linux Docker or a VM-backed Colima daemon.
-No host source/data/keyring directories are mounted by the portable helper. The managed grants directory is mounted read-only. The managed runtime retains the
-source recipe's root user with all capabilities dropped, read-only root/source and
-no-new-privileges. No provider connector is started.
+Open **http://127.0.0.1:18787/wizard-calendar/**. It starts empty with “Connect your
+Google calendar.” This helper fetches the pinned shared WizardApp client into an
+isolated core volume; it does not build or pull the app image. Set `DOCKER_CMD` for
+another Docker context. Use `--project calendar-personal --port 18788` for an
+independent instance; reuse the project name to retain its data.
 
-Custom instance: `python3 tools/run_portable.py start --project calendar-personal --port 18788`.
-For architecture rehearsal add `--platform linux/arm64` or `--platform linux/amd64`.
-Use the same project name for restart, updates and removal; it identifies the retained data.
-The helper binds loopback only and sets exact matching Host and Origin allowlists. These
-are not caller authentication: never expose this single-owner service directly to a LAN
-or Internet. Remote Wizard access must go through its authenticated gateway.
+The server accepts `/wizard-calendar/` and the unprefixed routes. Wizard's gateway
+path stays `/wizard-calendar/`; manifest `view.path: /` is the upstream service root.
+The main service is **1000:1000**, read-only, all capabilities dropped, with a small
+`/tmp` tmpfs and no-new-privileges. An offline, one-shot init service has only CHOWN
+to prepare the fresh root-owned `/data` bind for that user. It does not traverse or
+rewrite snapshot files. The managed app stores all state in `${APP_DATA_DIR}/data`.
+
+The helper publishes loopback only and sets exact Host/Origin allowlists. These are
+not caller authentication: never expose this single-owner service directly to a
+LAN or the Internet. Remote access belongs behind Wizard's authenticated gateway.
+Without an explicit origin override, requests must have a validated Host and a
+same-host HTTP/HTTPS Origin. WAM supplies the fresh box's trusted hosts/origins.
 
 ## Fixture/import proof
 
@@ -78,7 +80,7 @@ snapshot without permission. The source fixture is not loaded by the server on s
 
 ```sh
 curl --fail http://127.0.0.1:18787/api/export -o calendar-backup.json
-# After checking out/extracting a newer approved source release:
+# After loading the newer approved image and updating the recipe:
 python3 tools/run_portable.py start
 curl --fail http://127.0.0.1:18787/api/export
 # Stop/remove service but keep imported data:
@@ -94,31 +96,24 @@ The service never seeds, resets or migrates another installation. On startup it 
 
 ## Wizard package / developer option
 
-`wizard.md`, `runtipi/config.json`, portable `runtipi/docker-compose.yml`, `openapi.json`
-and `skill/SKILL.md` form the independently installable Wizard package. `runtime.package: source`
-runs the pinned official multi-architecture Python image with `${APP_SOURCE_DIR}:/app:ro`;
-there is no custom image, build or embedded source payload. The App Manager must supply
-`APP_SOURCE_DIR` (wizard-app-manager#153); older App Managers cannot install this recipe.
-The managed service runs as root with all capabilities dropped so root-owned app-data
-binds remain writable, retaining read-only root/source and no-new-privileges. Pass its exact
-trusted hosts/origins. `python3 tools/package_runtime.py --check` verifies recipe generation.
-The Dockerfile and root `compose.yml` remain optional standalone development tools.
-Wizard must provide the shared core URL and attach the iframe via its shared app services.
-Catalog admission is a separate platform/release-owner step.
-No application image registry publication or custom image archive is required.
+`wizard.md`, `runtipi/config.json`, `runtipi/docker-compose.yml`, `openapi.json`
+and `skill/SKILL.md` form the Wizard package. `runtime.package: image` uses the
+preloaded native image; the Dockerfile is `app/Dockerfile` (Python slim plus tzdata).
+`python3 tools/package_runtime.py --check` verifies generated recipe agreement.
+Root `compose.yml` is a separate developer-only build option, not the Store recipe.
+Wizard serves its shared client and hosts the iframe via shared app services.
+Catalog publication and activation remain separate release-owner steps.
 
 API: `GET /healthz`, `GET /api/health`, `GET /api/events`, `GET /api/export`,
 `POST /api/import`, `POST /api/calendars/visibility`, `GET /api/sync`, `POST /api/sync {}`.
 MCP: `POST /mcp`, read-only tools `calendar_events` and `sync_status`.
-The same routes work beneath `/wizard-calendar/`. See OSCAR-SETUP.md for full input limits.
-The App Manager injects its standard `${APP_DATA_DIR}/wizard:/wizard:ro` directory
-and `WIZARD_GRANTS_FILE=/wizard/grants.json`; the recipe has no app-specific grant
-mount. Code defaults to that path when the environment variable is absent and
-fails closed on missing/invalid files. Wizard permissions must approve the
-`wizard-calendar` → `wizard-connectors` edge. The provider endpoint from WAM takes
-precedence over `CONNECTORS_URL`; no hand-written grant bridge is needed.
-The source-package runtime has no inline source payload to regenerate; generate/check
-its recipe with `tools/package_runtime.py` after runtime configuration changes.
+The same routes work beneath `/wizard-calendar/`. See OSCAR-SETUP.md for input limits.
+WAM injects `${APP_DATA_DIR}/wizard:/wizard:ro` and
+`WIZARD_GRANTS_FILE=/wizard/grants.json`; no hand-written bridge is required.
+`uses: [connected-accounts]` declares the exact provider app id. Its endpoint takes
+precedence over `CONNECTORS_URL`. Old `wizard-connectors` and `slot:calendar-source`
+grants remain readable, but are not extra default grants. See ALPHA-RELEASE.md for
+fresh-install grant creation, owner consent, and sensitive/disconnected cases.
 
 The read-only live-copy comparison found Day/Week/Month, Today, gear, palette and shared
 Back/theme already present in the package. They are retained, not replaced by legacy
@@ -138,6 +133,6 @@ views and Back with the separately fetched shared client. `qa/hosted.cjs` uses t
 pinned shared services/Appearance implementations in a labelled test registry/iframe harness.
 It is not the full production shell, native iPhone/Android or live Google onboarding proof.
 Node QA needs the pinned dependency in `qa/package.json`, Google Chrome and writable
-external-disk scratch. `qa/container_release.py` is an optional image-build rehearsal, not
-part of the release's required install path. The private release receipt records actual
-architectures, base-image digest, checks, persistence evidence and remaining limitations.
+external-disk scratch. `python3 qa/headless.py` is the fast stdlib-only suite.
+`qa/container_release.py` delegates to the native-architecture Alpha runner. Neither
+container nor browser QA was run for this source-preparation change.

@@ -6,3 +6,5 @@ __pycache__/
 node_modules/
 artifacts/
 evidence/
+wizard-calendar-*.tar.gz
+wizard-calendar-*.tar.gz.partial

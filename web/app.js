@@ -291,7 +291,7 @@
     document.querySelector('[data-status]').textContent = 'Wizard core is missing. Follow the standalone setup in README.md.';
     return;
   }
-  WizardApp.ready({ name: 'Calendar', version: '0.1.0' });
+  WizardApp.ready({ name: 'Calendar', version: '0.3.0-alpha.1' });
 
   // Authorization and credentials belong exclusively to Connected accounts.
   function openCals() {
