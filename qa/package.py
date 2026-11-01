@@ -24,6 +24,10 @@ assert constants['VERSION'] == version
 assert json.loads((ROOT / 'openapi.json').read_text())['info']['version'] == version
 assert f"version: '{version}'" in (ROOT / 'web/app.js').read_text()
 assert 'package: image' in manifest and 'uses: [connected-accounts]' in manifest
+css = (ROOT / 'web/app.css').read_text()
+setup_heading = re.search(r'\.setup h1\s*\{([^}]+)\}', css)[1]
+assert 'font-size: var(--wz-text-title, 1.5rem)' in setup_heading
+assert not re.search(r'font-size:\s*[\d.]+px', setup_heading), 'New setup heading must follow the shared typography token'
 assert '/wizard-calendar/' in manifest
 assert all(f['required'] is False and 'default' in f for f in config['form_fields'])
 print(f'PASS versions agree: wizard.md/config/compose/server/OpenAPI/client = {version}')

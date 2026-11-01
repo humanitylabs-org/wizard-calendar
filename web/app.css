@@ -7,7 +7,7 @@ html[data-wz-hosted] body { background: var(--wz-canvas); }
 /* Standalone stays on the dark fallback; hosted light is shared Appearance's job. */
 .status { flex: 0 0 auto; margin: 4px 18px 8px; font-size: 12px; color: var(--ink-2); }
 .setup { margin: auto; width: min(540px, calc(100% - 32px)); padding: 24px; border: 1px solid var(--wz-border, var(--line)); border-radius: 18px; background: var(--wz-surface, var(--glass)); color: var(--wz-text, var(--ink)); overflow: auto; }
-.setup h1 { margin: 0 0 16px; font-size: 24px; line-height: 1.2; }
+.setup h1 { margin: 0 0 16px; font-size: var(--wz-text-title, 1.5rem); line-height: 1.2; }
 .setup p { color: var(--wz-text-secondary, var(--ink-2)); }
 .setup .btn { display: inline-flex; align-items: center; justify-content: center; margin: 8px 0 16px; text-decoration: none; }
 /* Shared kit button roles: accent fill + on-accent ink, never pale accent text. */
