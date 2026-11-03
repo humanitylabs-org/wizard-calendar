@@ -147,7 +147,8 @@ def _when(value, name, required=True):
         return None
     if not isinstance(value, str) or not (DATE.match(value) or DATETIME.match(value)):
         raise LiveError(400, 'invalid_time', f'{name} must be a date (2026-11-04) or a time (2026-11-04T09:30).')
-    return value
+    # Google Calendar answers 400 Bad Request to a time without seconds (2026-11-04T14:00): always send HH:MM:SS.
+    return re.sub(r'^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})(?=$|Z|[+-]\d{2}:\d{2}$)', r'\1:00', value)
 
 
 def _iso(value, all_day):
