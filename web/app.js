@@ -104,6 +104,20 @@
 
   // ---- Day / Week time grid ----
   const weekStart = (k) => addDays(k, -((civil(k).getUTCDay() + 6) % 7)); // Monday first
+  // Week view is a rolling 7 days: wkDow is its first weekday (0 = Monday … 6 = Sunday). The one-day buttons move it;
+  // 7-day steps, swipes, Today and view switches keep it, so a Tuesday–Monday week stays one until stepped back.
+  let wkDow = 0;
+  const dowMon = (k) => (civil(k).getUTCDay() + 6) % 7;
+  const rollStart = (k) => addDays(k, -((dowMon(k) - wkDow + 7) % 7));
+  // Move the Week window by n days (±7 = a week, ±1 = one day). Today is chosen when it is in view, else the selected day
+  // moves with the window and stays inside it.
+  function stepWeek(n) {
+    const ws = addDays(rollStart(sel), n), we = addDays(ws, 6), tk = todayKey();
+    wkDow = dowMon(ws);
+    let k = addDays(sel, n);
+    if (tk >= ws && tk <= we) k = tk; else if (k < ws) k = ws; else if (k > we) k = we;
+    sel = k; needScroll = true; renderTime(); ensureRange();
+  }
   const hm = (iso) => {
     const p = new Intl.DateTimeFormat('en-GB', { timeZone: TZ, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(iso));
     return +p.find((x) => x.type === 'hour').value * 60 + +p.find((x) => x.type === 'minute').value;
@@ -160,7 +174,7 @@
   }
 
   function renderTime() {
-    const tk = todayKey(), now = Date.now(), ws = weekStart(sel);
+    const tk = todayKey(), now = Date.now(), ws = mode === 'week' ? rollStart(sel) : weekStart(sel);
     const strip = [...Array(7)].map((_, i) => addDays(ws, i));
     const days = mode === 'week' ? strip : [sel];
     const n = days.length, tg = $('[data-time]');
@@ -236,6 +250,7 @@
     const unit = { day: 'day', week: 'week', month: 'month' }[mode];
     $('[data-prev]').setAttribute('aria-label', `Previous ${unit}`);
     $('[data-next-month]').setAttribute('aria-label', `Next ${unit}`);
+    for (const b of document.querySelectorAll('[data-step]')) b.hidden = mode !== 'week';
   }
 
   function setMode(m) {
@@ -504,7 +519,7 @@
     document.querySelector('[data-status]').textContent = 'Wizard core is missing. Follow the standalone setup in README.md.';
     return;
   }
-  WizardApp.ready({ name: 'Calendar', version: '0.3.1' });
+  WizardApp.ready({ name: 'Calendar', version: '0.3.4' });
 
   // Settings: Connected accounts + Agent access (settings.js, Mail's and Messenger's design), then private iCal links
   // and the snapshot (read-only). The private iCal URL is submitted once and never rendered back into the page.
@@ -620,10 +635,10 @@
     }
     if (t.matches('[data-today-btn]')) return goToday();
     if (t.matches('[data-sync]')) return syncNow(t);
-    if (mode !== 'month' && t.matches('[data-prev], [data-next-month]')) {
-      const dir = t.matches('[data-prev]') ? -1 : 1, tk = todayKey();
-      sel = addDays(sel, dir * (mode === 'week' ? 7 : 1));
-      if (mode === 'week' && weekStart(sel) === weekStart(tk)) sel = tk;
+    if (t.dataset.step && mode === 'week') return stepWeek(+t.dataset.step);
+    if (mode === 'week' && t.matches('[data-prev], [data-next-month]')) return stepWeek(t.matches('[data-prev]') ? -7 : 7);
+    if (mode === 'day' && t.matches('[data-prev], [data-next-month]')) {
+      sel = addDays(sel, t.matches('[data-prev]') ? -1 : 1);
       needScroll = true; renderTime(); return ensureRange();
     }
     if (t.matches('[data-prev], [data-next-month]')) {

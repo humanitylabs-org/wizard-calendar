@@ -328,3 +328,14 @@ html[data-presentation="immersive"] .bar { padding-right: 170px; }
 .wcs-sgi-when { color: var(--ink-2); font-size: .875rem; margin-bottom: 4px; }
 .wcs-sgi .wcs-sg-acts { margin-top: 8px; justify-content: flex-end; }
 .sheet .wcs-sgi .row { border-top: 0; padding: 3px 0; }
+
+/* 0.3.4 Week view: one-day steps beside the view tabs (thumb reach), so the 7 days can start on any day. */
+.tabs .tab-set { flex: 1; min-width: 0; display: flex; gap: 6px; }
+.tabs .step { flex: 0 0 auto; display: flex; align-items: center; justify-content: center; gap: 2px; height: 42px; min-width: 44px; padding: 0 10px 0 6px;
+  border-radius: 12px; border: 1px solid var(--line); background: color-mix(in srgb, var(--ink) 5%, transparent);
+  color: var(--ink-2); font-size: var(--wz-text-sm, .8125rem); font-weight: 650; white-space: nowrap; }
+.tabs .step[data-step="1"] { padding: 0 6px 0 10px; }
+.tabs .step svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.tabs .step:active { background: color-mix(in srgb, var(--violet) 18%, transparent); }
+@media (pointer: coarse) { .tabs .step { height: 44px; } }
+@media (max-width: 340px) { .tabs .step span { display: none; } }
