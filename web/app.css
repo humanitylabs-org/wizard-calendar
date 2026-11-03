@@ -204,50 +204,49 @@ a { color: var(--violet-2); }
 .hello-in { width: min(100%, 420px); text-align: center; }
 .hello-ic { width: 56px; height: 56px; margin: 0 auto 14px; display: grid; place-items: center; border-radius: 18px; background: color-mix(in srgb, var(--violet) 16%, transparent); }
 .hello-ic svg { width: 28px; height: 28px; fill: none; stroke: var(--violet-2); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-.hello h2 { margin: 0 0 6px; font-size: 22px; line-height: 1.25; }
-.hello p { margin: 0 0 18px; color: var(--ink-2); font-size: 14.5px; line-height: 1.5; }
+.hello h2 { margin: 0 0 6px; font-size: 1.375rem; line-height: 1.25; }
+.hello p { margin: 0 0 18px; color: var(--ink-2); font-size: .90625rem; line-height: 1.5; }
 .hello-list { display: grid; gap: 8px; text-align: left; }
 .hello-row, .wc-sheet .wz-row { width: 100%; display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 16px; border: 1px solid var(--line); background: color-mix(in srgb, var(--ink) 5%, transparent); color: var(--ink); text-align: left; font: inherit; cursor: pointer; }
 .hello-row:hover, .wc-sheet .wz-row:hover { border-color: color-mix(in srgb, var(--violet) 55%, var(--line)); }
 .hello-row .tile, .wc-sheet .wz-tile { flex: 0 0 auto; width: 38px; height: 38px; display: grid; place-items: center; border-radius: 12px; background: color-mix(in srgb, var(--violet) 18%, transparent); color: var(--violet-2); font-weight: 700; }
 .hello-row .main, .wc-sheet .wz-main { flex: 1; min-width: 0; display: grid; gap: 2px; }
-.hello-row small, .wc-sheet .wz-main small { color: var(--ink-3); font-size: 12.5px; line-height: 1.35; }
-.hello-row .chev, .wc-sheet .chev { color: var(--ink-3); font-size: 20px; }
-.hello .lnk { margin-top: 16px; color: var(--violet-2); text-decoration: underline; font-size: 13px; }
+.hello-row small, .wc-sheet .wz-main small { color: var(--ink-3); font-size: .78125rem; line-height: 1.35; }
+.hello-row .chev, .wc-sheet .chev { color: var(--ink-3); font-size: 1.25rem; }
+.hello .lnk { margin-top: 16px; color: var(--violet-2); text-decoration: underline; font-size: .8125rem; }
 .sheet .connect-row, .sheet .live-acts, .sheet .rsvp { display: flex; gap: 8px; flex-wrap: wrap; }
 .sheet .live-acts { margin-top: 14px; }
 .sheet .live-acts .btn { margin-top: 0; }
 .sheet .btn.primary { background: var(--violet); color: var(--on-accent); border-color: transparent; }
 .sheet .btn.danger { color: var(--red); background: transparent; }
-.sheet .chip-btn { min-height: 40px; padding: 8px 14px; border-radius: 999px; border: 1px solid var(--line-2); color: var(--ink); font-weight: 600; font-size: 14px; }
+.sheet .chip-btn { min-height: 40px; padding: 8px 14px; border-radius: 999px; border: 1px solid var(--line-2); color: var(--ink); font-weight: 600; font-size: .875rem; }
 .sheet .chip-btn.on { background: var(--violet); color: var(--on-accent); border-color: transparent; }
 .sheet .chip-btn[disabled] { opacity: .6; }
 .ev-form .two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 8.5em); gap: 10px; }
 .ev-form .two .field[hidden] { display: none; }
-.ev-form .check { display: flex; align-items: center; gap: 10px; margin-top: 12px; color: var(--ink); font-size: 14.5px; }
+.ev-form .check { display: flex; align-items: center; gap: 10px; margin-top: 12px; color: var(--ink); font-size: .90625rem; }
 .ev-form .check input { width: 20px; height: 20px; margin: 0; accent-color: var(--violet); }
-.sheet select { width: 100%; margin-top: 6px; padding: 11px 12px; border-radius: 12px; border: 1px solid var(--line-2); background: color-mix(in srgb, var(--ink) 6%, transparent); color: var(--ink); font: inherit; font-size: 15px; }
+.sheet select { width: 100%; margin-top: 6px; padding: 11px 12px; border-radius: 12px; border: 1px solid var(--line-2); background: color-mix(in srgb, var(--ink) 6%, transparent); color: var(--ink); font: inherit; font-size: .9375rem; }
 .sheet input[type="date"], .sheet input[type="time"] { color-scheme: inherit; min-height: 44px; }
 .tg .col { cursor: copy; }
 
 /* The connect sheet (web/connect.js, shared with Wizard Mail) on this app's own roles */
-.wc-sheet { width: min(calc(100% - 24px), 460px); max-height: min(86vh, 720px); padding: 20px; border-radius: 22px; border: 1px solid var(--line-2); background: var(--sheet); color: var(--ink); }
-.wc-sheet { -webkit-backdrop-filter: blur(28px) saturate(1.2); backdrop-filter: blur(28px) saturate(1.2); }
-/* Hosted skins make --sheet translucent: blur what is behind so the week view never shows through. */
-.wc-sheet::backdrop { background: rgba(0, 0, 0, .55); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
-.wc-sheet h2 { margin: 0 0 12px; font-size: 20px; }
+/* REUSE: Appearance v1 opaque panel; the same role formula uses existing dark standalone aliases. */
+.wc-sheet { width: min(calc(100% - 24px), 460px); max-height: min(86vh, 720px); padding: 20px; border-radius: 22px; border: 1px solid var(--line-2); background: var(--wz-panel, color-mix(in srgb, var(--ink) 10%, var(--bg))); color: var(--ink); }
+.wc-sheet::backdrop { background: color-mix(in srgb, var(--wz-base, var(--bg)) 55%, transparent); }
+.wc-sheet h2 { margin: 0 0 12px; font-size: 1.25rem; }
 .wc-sheet .wz-list { display: grid; gap: 8px; }
-.wc-sheet .muted { color: var(--ink-2); font-size: 14px; line-height: 1.45; }
-.wc-sheet .wc-note { margin-top: 12px; font-size: 12.5px; color: var(--ink-3); }
+.wc-sheet .muted { color: var(--ink-2); font-size: .875rem; line-height: 1.45; }
+.wc-sheet .wc-note { margin-top: 12px; font-size: .78125rem; color: var(--ink-3); }
 .wc-sheet .wc-bad { color: var(--red); }
 .wc-sheet .wz-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
-.wc-sheet .wz-button { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 10px 16px; border-radius: 12px; border: 1px solid transparent; background: var(--violet); color: var(--on-accent); font-weight: 650; font-size: 14.5px; text-decoration: none; cursor: pointer; }
+.wc-sheet .wz-button { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 10px 16px; border-radius: 12px; border: 1px solid transparent; background: var(--violet); color: var(--on-accent); font-weight: 650; font-size: .90625rem; text-decoration: none; cursor: pointer; }
 .wc-sheet .wz-button.secondary { background: transparent; color: var(--ink); border-color: var(--line-2); }
 .wc-steps { list-style: none; padding: 0; margin: 12px 0; display: grid; gap: 6px; }
 .wc-steps li { display: flex; gap: 8px; align-items: center; color: var(--ink-3); }
 .wc-steps li.wc-now { color: var(--ink); font-weight: 600; }
 .wc-steps li.wc-done { color: var(--ink-2); }
-.wc-dot { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; border: 1.5px solid currentColor; }
+.wc-dot { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: .75rem; border: 1.5px solid currentColor; }
 .wc-steps li.wc-done .wc-dot { background: var(--violet); color: var(--on-accent); border-color: transparent; }
 .wc-steps li.wc-now .wc-dot { border-color: var(--violet); }
 .wc-spin { width: 22px; height: 22px; border-radius: 50%; border: 2.5px solid color-mix(in srgb, var(--ink) 18%, transparent); border-top-color: var(--violet); animation: spin 1s linear infinite; margin: 8px 0; }
@@ -270,7 +269,7 @@ html[data-presentation="immersive"] .bar { padding-right: 170px; }
 @media (hover: hover) { .wcs-tile:hover { background: color-mix(in srgb, var(--ink) 6%, transparent); } }
 .wcs-tile:focus-visible { outline: 2px solid var(--violet); outline-offset: 1px; }
 .wcs-icon { position: relative; display: inline-flex; }
-.wcs-mark { display: block; width: 40px; height: 40px; }
+.wcs-mark { display: block; width: 40px; height: 40px; pointer-events: none; -webkit-user-drag: none; -webkit-touch-callout: none; }
 .wcs-dot { position: absolute; right: -5px; bottom: -5px; width: 15px; height: 15px; border-radius: 50%; background: var(--sheet); }
 .wcs-dot::after { content: ""; position: absolute; inset: 2.5px; border-radius: 50%; background: var(--green); }
 .wcs-warn .wcs-dot::after { background: var(--amber); }

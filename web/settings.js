@@ -8,17 +8,11 @@
  * no agent or bearer path can change it. Classes are prefixed `wcs-` (host apps' generic classes leak in). */
 (() => {
   'use strict';
-  const NS = 'http://www.w3.org/2000/svg';
-  // Brand marks (official four-colour Google G and Microsoft squares), drawn without a background, like Messenger.
+  // Official artwork lives in content/ (the shared checker's content exemption), not UI palette roles.
+  // Embed those exact SVGs as images so standalone needs no new server routes. qa/test_calendar_style.py pins parity.
   const MARKS = {
-    google: { box: '0 0 48 48', paths: [
-      ['rgb(234 67 53)', 'M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z'],
-      ['rgb(66 133 244)', 'M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z'],
-      ['rgb(251 188 5)', 'M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z'],
-      ['rgb(52 168 83)', 'M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z']] },
-    microsoft: { box: '0 0 23 23', paths: [
-      ['rgb(242 80 34)', 'M1 1h10v10H1z'], ['rgb(127 186 0)', 'M12 1h10v10H12z'],
-      ['rgb(0 164 239)', 'M1 12h10v10H1z'], ['rgb(255 185 0)', 'M12 12h10v10H12z']] },
+    google: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA0OCA0OCI+PHBhdGggZmlsbD0icmdiKDIzNCA2NyA1MykiIGQ9Ik0yNCA5LjVjMy41NCAwIDYuNzEgMS4yMiA5LjIxIDMuNmw2Ljg1LTYuODVDMzUuOSAyLjM4IDMwLjQ3IDAgMjQgMCAxNC42MiAwIDYuNTEgNS4zOCAyLjU2IDEzLjIybDcuOTggNi4xOUMxMi40MyAxMy43MiAxNy43NCA5LjUgMjQgOS41eiIvPjxwYXRoIGZpbGw9InJnYig2NiAxMzMgMjQ0KSIgZD0iTTQ2Ljk4IDI0LjU1YzAtMS41Ny0uMTUtMy4wOS0uMzgtNC41NUgyNHY5LjAyaDEyLjk0Yy0uNTggMi45Ni0yLjI2IDUuNDgtNC43OCA3LjE4bDcuNzMgNmM0LjUxLTQuMTggNy4wOS0xMC4zNiA3LjA5LTE3LjY1eiIvPjxwYXRoIGZpbGw9InJnYigyNTEgMTg4IDUpIiBkPSJNMTAuNTMgMjguNTljLS40OC0xLjQ1LS43Ni0yLjk5LS43Ni00LjU5cy4yNy0zLjE0Ljc2LTQuNTlsLTcuOTgtNi4xOUMuOTIgMTYuNDYgMCAyMC4xMiAwIDI0YzAgMy44OC45MiA3LjU0IDIuNTYgMTAuNzhsNy45Ny02LjE5eiIvPjxwYXRoIGZpbGw9InJnYig1MiAxNjggODMpIiBkPSJNMjQgNDhjNi40OCAwIDExLjkzLTIuMTMgMTUuODktNS44MWwtNy43My02Yy0yLjE1IDEuNDUtNC45MiAyLjMtOC4xNiAyLjMtNi4yNiAwLTExLjU3LTQuMjItMTMuNDctOS45MWwtNy45OCA2LjE5QzYuNTEgNDIuNjIgMTQuNjIgNDggMjQgNDh6Ii8+PC9zdmc+',
+    microsoft: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyMyAyMyI+PHBhdGggZmlsbD0icmdiKDI0MiA4MCAzNCkiIGQ9Ik0xIDFoMTB2MTBIMXoiLz48cGF0aCBmaWxsPSJyZ2IoMTI3IDE4NiAwKSIgZD0iTTEyIDFoMTB2MTBIMTJ6Ii8+PHBhdGggZmlsbD0icmdiKDAgMTY0IDIzOSkiIGQ9Ik0xIDEyaDEwdjEwSDF6Ii8+PHBhdGggZmlsbD0icmdiKDI1NSAxODUgMCkiIGQ9Ik0xMiAxMmgxMHYxMEgxMnoiLz48L3N2Zz4=',
   };
   const NAMES = { google: 'Google', microsoft: 'Microsoft' };
   const VIA = { composio: 'Quick connect', 'own-client': 'Your own Google app', 'own-app': 'Your own Microsoft app' };
@@ -39,11 +33,7 @@
   }
   function button(text, fn, cls, attrs) { const b = el('button', text, cls, { type: 'button', ...attrs }); b.onclick = fn; return b; }
   function mark(source) {
-    const m = MARKS[source];
-    const svg = document.createElementNS(NS, 'svg');
-    svg.setAttribute('viewBox', m ? m.box : '0 0 24 24'); svg.setAttribute('aria-hidden', 'true'); svg.setAttribute('class', 'wcs-mark');
-    for (const [fill, d] of (m ? m.paths : [])) { const p = document.createElementNS(NS, 'path'); p.setAttribute('fill', fill); p.setAttribute('d', d); svg.append(p); }
-    return svg;
+    return el('img', null, 'wcs-mark', { src: MARKS[source], alt: '', 'aria-hidden': 'true' });
   }
   const client = id => window.WizardConnect.client(id);
 
