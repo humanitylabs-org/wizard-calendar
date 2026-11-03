@@ -123,7 +123,7 @@ def main():
 
         owner = {'Origin': f'http://{host}', 'Sec-Fetch-Site': 'same-origin', 'X-Wizard-Request': 'calendar'}
         status, health = req('/healthz')
-        check('health reports 0.3.1', status == 200 and health['version'] == '0.3.1')
+        check('health reports 0.3.2', status == 200 and health['version'] == '0.3.2')
         status, live = req('/api/live')
         check('both sources connected', status == 200 and live['connected'] and len(live['sources']) == 2)
         status, view = req('/api/events?from=2026-10-12&to=2026-12-21')
@@ -199,7 +199,7 @@ def main():
         check('create goes to Microsoft', status == 200 and value['created'])
         check('the owner change carries the grant', [c for c in m.calls if c[0] == 'calendar_create_event'][-1][3] == 'grant-microsoft-0123456789')
         sent = [c for c in m.calls if c[0] == 'calendar_create_event'][-1][1]
-        check('create arguments', sent == {'account': 'me@outlook.com', 'title': 'Dentist', 'start': '2026-11-05T10:00', 'end': '2026-11-05T11:00', 'location': 'Soi 24', 'time_zone': 'Asia/Bangkok'})
+        check('create arguments', sent == {'account': 'me@outlook.com', 'title': 'Dentist', 'start': '2026-11-05T10:00:00', 'end': '2026-11-05T11:00:00', 'location': 'Soi 24', 'time_zone': 'Asia/Bangkok'})
         for bad in ({**body, 'title': ' '}, {**body, 'end': '2026-11-05'}, {**body, 'end': '2026-11-04T10:00'}, {**body, 'account': 'live:yahoo:me@yahoo.com'},
                     {**body, 'start': 'tomorrow'}, {**body, 'attendees': ['nope']}):
             status, value = req('/api/live/create', bad, owner)
