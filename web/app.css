@@ -170,7 +170,7 @@ a { color: var(--violet-2); }
 
 .tg-body { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; scrollbar-width: none; padding-right: 10px; }
 .tg-body::-webkit-scrollbar { display: none; }
-.tg-in { position: relative; display: flex; height: calc(24 * var(--hour)); margin: 8px 0 calc(16px + env(safe-area-inset-bottom)); }
+.tg-in { position: relative; display: flex; height: calc(24 * var(--hour)); margin: 7px 0 calc(6px + env(safe-area-inset-bottom)); }
 .tg-hrs { flex: 0 0 var(--g); position: relative; }
 .tg-hrs span { position: absolute; right: 6px; transform: translateY(-50%); font-size: 10px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
 .tg-cols { flex: 1; min-width: 0; display: grid; grid-template-columns: repeat(var(--n), minmax(0, 1fr));
@@ -179,7 +179,7 @@ a { color: var(--violet-2); }
 .col.today { background: color-mix(in srgb, var(--violet) 7%, transparent); }
 .blk { position: absolute; overflow: hidden; border-radius: 6px; padding: 2px 3px 2px 4px; font-size: 10.5px; line-height: 1.2; color: var(--ink);
   background: color-mix(in srgb, var(--c) 24%, var(--bg)); border-left: 3px solid var(--c); box-shadow: 0 0 0 1px var(--bg); }
-.blk b { display: block; font-weight: 650; word-break: normal; overflow-wrap: normal; }
+.blk b { display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; font-weight: 650; word-break: normal; overflow-wrap: normal; }
 .blk span { display: block; color: var(--ink-2); font-size: 10px; margin-top: 1px; }
 .blk.past { opacity: .8; }
 .blk.live { box-shadow: 0 0 0 1px var(--bg), 0 0 0 2px color-mix(in srgb, var(--pink) 70%, transparent); }
@@ -187,6 +187,16 @@ a { color: var(--violet-2); }
 .tg.is-day .blk { padding: 4px 8px; font-size: 13.5px; border-radius: 8px; }
 .tg.is-day .blk span { font-size: 12.5px; }
 .tg.is-day .blk b { overflow-wrap: anywhere; }
+/* Whole day in view: short blocks keep one line (title, then time in Day), cut with an ellipsis. */
+.blk.tight { display: flex; align-items: flex-start; gap: 4px; padding-top: 0; padding-bottom: 0; line-height: 1.15; }
+.blk.tight b { display: block; }
+.blk.tight b, .blk.tight span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 0; }
+.blk.tight b { flex: 0 1 auto; min-width: 0; }
+.blk.tight span { flex: 1 1 0; min-width: 0; }
+.tg.dense .blk:not(.tight) { padding-top: 1px; padding-bottom: 1px; }
+.tg.dense .tg-hrs span { font-size: .5625rem; }
+.tg.is-day .blk.tight { padding-top: 0; padding-bottom: 0; font-size: .75rem; }
+.tg.is-day .blk.tight span { font-size: .6875rem; }
 .now { position: absolute; left: -1px; right: 0; height: 2px; background: var(--pink); z-index: 3; pointer-events: none; }
 .now::before { content: ""; position: absolute; left: -4px; top: -3px; width: 8px; height: 8px; border-radius: 50%; background: var(--pink); }
 

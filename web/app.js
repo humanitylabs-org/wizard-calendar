@@ -5,7 +5,10 @@
   const API = new URL('api/events', location.href).pathname;
   let TZ = 'UTC';
   let doc = null, byDay = new Map(), view = null, sel = null, sheetOpen = false;
-  const MODES = ['day', 'week', 'month'], HOUR = 48;
+  const MODES = ['day', 'week', 'month'];
+  // Day/Week show the whole day (00:00–24:00) without scrolling: the hour height follows the grid's height (fitHour).
+  const MIN_HOUR = 9, MIN_BLK = 14;
+  let HOUR = 48;
   let mode = MODES.includes(localStorage.getItem('wc.mode')) ? localStorage.getItem('wc.mode') : 'week';
   let needScroll = true; // scroll the time grid to "now" on the next render
   let range = null, loading = null; // the loaded live window [from, to)
@@ -146,6 +149,16 @@
     return bars;
   }
 
+  // Hour height that fits all 24 hours in the time grid's visible height (never below MIN_HOUR; then the grid scrolls).
+  function fitHour() {
+    const body = $('[data-tbody]'), tin = $('[data-tin]');
+    const h = body.clientHeight;
+    if (!h) return HOUR;
+    const cs = getComputedStyle(tin);
+    const avail = h - parseFloat(cs.marginTop) - parseFloat(cs.marginBottom) - 1;
+    return Math.max(MIN_HOUR, Math.floor(avail / 24 * 4) / 4);
+  }
+
   function renderTime() {
     const tk = todayKey(), now = Date.now(), ws = weekStart(sel);
     const strip = [...Array(7)].map((_, i) => addDays(ws, i));
@@ -177,17 +190,26 @@
     $('[data-lanes]').innerHTML = bars.map(({ e, s, en, lane, cutL, cutR }) =>
       `<button class="ad${cutL ? ' cut-l' : ''}${cutR ? ' cut-r' : ''}" data-ev="${esc(e.id)}" style="--c:${esc(e.color)};grid-column:${s + 1} / ${en + 2};grid-row:${lane + 1}">${esc(e.title)}</button>`).join('');
 
-    // Hours + columns
+    // Hours + columns: 24 rows sized to fit; labels thin out when rows get too short for every one.
+    HOUR = fitHour();
+    tg.style.setProperty('--hour', `${HOUR}px`);
+    tg.classList.toggle('dense', HOUR < 30);
+    const every = HOUR >= 13 ? 1 : HOUR >= 9 ? 2 : 3;
     let hours = '';
-    for (let h = 1; h < 24; h++) hours += `<span style="top:${h * HOUR}px">${String(h).padStart(2, '0')}:00</span>`;
+    for (let h = 0; h < 24; h += every) hours += `<span style="top:${h * HOUR}px">${String(h).padStart(2, '0')}:00</span>`;
     const cols = days.map((k) => {
       const blocks = layoutDay(k).map(({ e, s, en, col, n: nc }) => {
-        const top = s / 60 * HOUR, h = Math.max((en - s) / 60 * HOUR, 18);
+        const top = Math.min(s / 60 * HOUR, 24 * HOUR - MIN_BLK), h = Math.max((en - s) / 60 * HOUR, MIN_BLK);
+        const tight = h < (mode === 'day' ? 36 : 28);
         const past = new Date(e.end).getTime() < now;
         const live = new Date(e.start).getTime() <= now && !past;
         const time = `${minsIn(e.start, k) === 0 && dayKey(new Date(e.start)) < k ? '…' : fmtT(e.start)}–${dayKey(new Date(new Date(e.end) - 1)) > k ? '…' : fmtT(e.end)}`;
+        // Lines of title that fit above the optional time line (the rest ends with an ellipsis).
+        const lh = mode === 'day' ? 16.2 : 12.6;
+        const sub0 = mode === 'day' || h >= 44;
+        const lines = Math.max(1, Math.floor((h - (mode === 'day' ? 9 : 5) - (sub0 ? lh : 0)) / lh));
         const sub = mode === 'day' ? `${time}${e.location ? ` · ${esc(e.location)}` : ''}` : (h >= 44 ? fmtT(e.start) : '');
-        return `<button class="blk${past ? ' past' : ''}${live ? ' live' : ''}" data-ev="${esc(e.id)}" style="--c:${esc(e.color)};top:${top}px;height:${h - 2}px;left:calc(${col / nc * 100}% + 1px);width:calc(${100 / nc}% - 2px)" aria-label="${esc(e.title)}, ${time}"><b>${esc(e.title)}</b>${sub ? `<span>${sub}</span>` : ''}</button>`;
+        return `<button class="blk${past ? ' past' : ''}${live ? ' live' : ''}${tight ? ' tight' : ''}" data-ev="${esc(e.id)}" style="--c:${esc(e.color)};top:${top}px;height:${Math.max(h - 1, MIN_BLK - 1)}px;left:calc(${col / nc * 100}% + 1px);width:calc(${100 / nc}% - 2px)" aria-label="${esc(e.title)}, ${time}"><b${tight ? '' : ` style="-webkit-line-clamp:${lines}"`}>${esc(e.title)}</b>${sub ? `<span>${sub}</span>` : ''}</button>`;
       }).join('');
       const nowLine = k === tk ? `<i class="now" style="top:${nowMins() / 60 * HOUR}px"></i>` : '';
       return `<div class="col${k === tk ? ' today' : ''}" data-col="${k}">${blocks}${nowLine}</div>`;
@@ -695,6 +717,8 @@
   renderTodayBtn();
   load(false).catch(() => {});
   setInterval(() => { renderTodayBtn(); if (doc && mode !== 'month') renderTime(); }, 60e3);
+  // Window resized (phone rotated, window tiled/maximised): refit the 24 hours.
+  new ResizeObserver(() => { if (doc && mode !== 'month' && fitHour() !== HOUR) renderTime(); }).observe($('[data-tbody]'));
   WizardApp.theme.onChange(() => { if (doc) render(); });
   document.addEventListener('visibilitychange', () => { if (!document.hidden) load(false).catch(() => {}); });
   window.addEventListener('focus', () => { refreshSugg(); });
