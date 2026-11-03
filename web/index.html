@@ -18,10 +18,24 @@
     <button class="month" data-month title="Jump to today"></button>
     <button class="nav" data-next-month aria-label="Next"><svg viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></svg></button>
     <span class="grow"></span>
+    <button class="nav new-btn" data-new hidden aria-label="New event" title="New event"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
     <button class="nav today-btn" data-today-btn aria-label="Jump to today" title="Today"><svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="16" rx="3.5"/><path d="M8.5 3v4M15.5 3v4"/></svg><b data-today-num></b></button>
     <button class="nav" data-cals aria-label="Settings" title="Settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
   </header>
   <p class="status" data-status role="status">Loading calendar…</p>
+  <section class="wcs-pending" data-sugg aria-label="Suggestions from your agent" hidden></section>
+  <section class="hello" data-hello hidden>
+    <div class="hello-in">
+      <span class="hello-ic" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="16" rx="3.5"/><path d="M8.5 3v4M15.5 3v4M3.5 10h17"/></svg></span>
+      <h2>Connect your calendar</h2>
+      <p>See your events here, add new ones and answer invites. You sign in once in a small window; Calendar does the rest.</p>
+      <div class="hello-list">
+        <button class="hello-row" data-connect="google"><span class="tile">G</span><span class="main"><b>Google</b><small>Google Calendar</small></span><span class="chev" aria-hidden="true">›</span></button>
+        <button class="hello-row" data-connect="microsoft"><span class="tile">M</span><span class="main"><b>Microsoft</b><small>Outlook, Hotmail, Microsoft 365</small></span><span class="chev" aria-hidden="true">›</span></button>
+      </div>
+      <button class="lnk" data-cals>Or add a private iCal link</button>
+    </div>
+  </section>
   <div class="scroll" data-scroll>
     <div class="grid" data-grid></div>
     <div class="agenda" data-agenda></div>
@@ -40,6 +54,8 @@
   <div class="sheet-back" data-sheet-back hidden></div>
   <article class="sheet" data-sheet hidden></article>
 </main>
+<script src="connect.js"></script>
+<script src="settings.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
