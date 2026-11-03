@@ -47,7 +47,8 @@
 
   function renderGrid() {
     const [y, m] = view;
-    $('[data-month]').textContent = new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', month: 'long', year: 'numeric' }).format(new Date(Date.UTC(y, m, 15)));
+    const mt = (month) => new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', month, year: 'numeric' }).format(new Date(Date.UTC(y, m, 15)));
+    setTitle(mt('long'), mt('short'));
     const first = `${y}-${String(m + 1).padStart(2, '0')}-01`;
     const lead = (civil(first).getUTCDay() + 6) % 7; // Monday first
     const start = addDays(first, -lead);
@@ -100,6 +101,13 @@
     const err = doc.syncError || (doc.errors || []).join('; ');
     const source = (doc.connected || []).length ? 'Updated' : 'Imported';
     $('[data-foot]').innerHTML = `Calendar · ${cals}<br>${source} ${when} · <button class="lnk" data-cals>Settings</button>${err ? `<br><span class="err">Sync issue: ${esc(err)}</span>` : ''}`;
+  }
+
+  // The bar title: the long form, plus a short one that narrow windows show (CSS) so the arrows and title share one line.
+  function setTitle(long, short) {
+    const t = $('[data-month]');
+    t.innerHTML = `<span class="wc-tl">${esc(long)}</span><span class="wc-ts" aria-hidden="true">${esc(short)}</span>`;
+    t.setAttribute('aria-label', `${long}. Jump to today`);
   }
 
   // ---- Day / Week time grid ----
@@ -185,10 +193,14 @@
     if (mode === 'week') {
       const a = civil(strip[0]), b = civil(strip[6]);
       const mo = (c, y) => new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', month: y ? 'long' : 'short', ...(y ? { year: 'numeric' } : {}) }).format(c);
-      $('[data-month]').textContent = a.getUTCMonth() === b.getUTCMonth() ? mo(a, 1)
-        : `${mo(a)} – ${mo(b)} ${b.getUTCFullYear()}`;
+      const long = a.getUTCMonth() === b.getUTCMonth() ? mo(a, 1) : `${mo(a)} – ${mo(b)} ${b.getUTCFullYear()}`;
+      // Narrow windows show a short title ("Nov", "Oct–Nov") so the week and day arrows fit beside it on one line.
+      const yr = b.getUTCFullYear() === +tk.slice(0, 4) ? '' : ` ${b.getUTCFullYear()}`;
+      const short = (a.getUTCMonth() === b.getUTCMonth() ? mo(a) : `${mo(a)}–${mo(b)}`) + yr;
+      setTitle(long, short);
     } else {
-      $('[data-month]').textContent = fmtC(sel, { weekday: 'short', day: 'numeric', month: 'long' }) + (sel.slice(0, 4) === tk.slice(0, 4) ? '' : ` ${sel.slice(0, 4)}`);
+      const yr = sel.slice(0, 4) === tk.slice(0, 4) ? '' : ` ${sel.slice(0, 4)}`;
+      setTitle(fmtC(sel, { weekday: 'short', day: 'numeric', month: 'long' }) + yr, fmtC(sel, { weekday: 'short', day: 'numeric', month: 'short' }) + yr);
     }
 
     // Day heads: Week → tap opens that day; Day → week strip to hop between days.
@@ -247,10 +259,14 @@
     $('[data-scroll]').hidden = !month;
     $('[data-time]').hidden = month;
     for (const b of document.querySelectorAll('[data-mode]')) { const on = b.dataset.mode === mode; b.classList.toggle('on', on); b.setAttribute('aria-selected', String(on)); }
-    const unit = { day: 'day', week: 'week', month: 'month' }[mode];
-    $('[data-prev]').setAttribute('aria-label', `Previous ${unit}`);
-    $('[data-next-month]').setAttribute('aria-label', `Next ${unit}`);
-    for (const b of document.querySelectorAll('[data-step]')) b.hidden = mode !== 'week';
+    // Week: « » move a week, ‹ › (beside the title) move one day. Day and Month: ‹ › move one day / month.
+    const week = mode === 'week', unit = { day: 'day', week: 'day', month: 'month' }[mode];
+    $('[data-prev]').setAttribute('aria-label', week ? 'Back one day' : `Previous ${unit}`);
+    $('[data-next-month]').setAttribute('aria-label', week ? 'Forward one day' : `Next ${unit}`);
+    $('[data-prev]').title = week ? 'Back one day' : `Previous ${unit}`;
+    $('[data-next-month]').title = week ? 'Forward one day' : `Next ${unit}`;
+    for (const b of document.querySelectorAll('[data-step], [data-unit]')) b.hidden = !week;
+    $('[data-go]').classList.toggle('is-week', week);
   }
 
   function setMode(m) {
@@ -636,7 +652,7 @@
     if (t.matches('[data-today-btn]')) return goToday();
     if (t.matches('[data-sync]')) return syncNow(t);
     if (t.dataset.step && mode === 'week') return stepWeek(+t.dataset.step);
-    if (mode === 'week' && t.matches('[data-prev], [data-next-month]')) return stepWeek(t.matches('[data-prev]') ? -7 : 7);
+    if (mode === 'week' && t.matches('[data-prev], [data-next-month]')) return stepWeek(t.matches('[data-prev]') ? -1 : 1);
     if (mode === 'day' && t.matches('[data-prev], [data-next-month]')) {
       sel = addDays(sel, t.matches('[data-prev]') ? -1 : 1);
       needScroll = true; renderTime(); return ensureRange();
@@ -681,7 +697,10 @@
   $('[data-time]').addEventListener('touchend', (e) => {
     if (tx == null) return;
     const dx = e.changedTouches[0].clientX - tx, dy = e.changedTouches[0].clientY - ty; tx = null;
-    if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) $(dx < 0 ? '[data-next-month]' : '[data-prev]').click();
+    if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+      if (mode === 'week') return stepWeek(dx < 0 ? 7 : -7); // swipes still turn a whole week
+      $(dx < 0 ? '[data-next-month]' : '[data-prev]').click();
+    }
   }, { passive: true });
 
   async function syncNow(btn) {

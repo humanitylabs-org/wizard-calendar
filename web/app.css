@@ -268,7 +268,7 @@ a { color: var(--violet-2); }
 /* Wizard full screen puts its Exit pill over the top-right corner. */
 html[data-presentation="immersive"] .bar { padding-right: 170px; }
 /* Nothing connected yet: only the welcome and Settings. */
-.app.is-empty .tg, .app.is-empty .scroll, .app.is-empty .tabs, .app.is-empty [data-prev], .app.is-empty [data-next-month], .app.is-empty .month, .app.is-empty [data-today-btn] { display: none !important; }
+.app.is-empty .tg, .app.is-empty .scroll, .app.is-empty .tabs, .app.is-empty [data-prev], .app.is-empty [data-next-month], .app.is-empty .month, .app.is-empty [data-today-btn], .app.is-empty .wc-go { display: none !important; }
 
 /* Settings (settings.js): the same design as Mail's and Messenger's. Flat brand tiles with a status dot, a + tile, and one
    Agent access row with a quiet picker. `wcs-` prefix: host apps' generic classes leak in. */
@@ -329,13 +329,39 @@ html[data-presentation="immersive"] .bar { padding-right: 170px; }
 .wcs-sgi .wcs-sg-acts { margin-top: 8px; justify-content: flex-end; }
 .sheet .wcs-sgi .row { border-top: 0; padding: 3px 0; }
 
-/* 0.3.4 Week view: one-day steps beside the view tabs (thumb reach), so the 7 days can start on any day. */
+/* 0.3.5 One nav group in the bar: Week = « ‹ title › » (double chevrons a week, single chevrons one day, labelled
+   on wide windows); Day and Month keep ‹ title ›. Narrow windows use a short title so it stays on one line. */
+.app { container: wcapp / inline-size; }
+.wc-go { flex: 0 1 auto; min-width: 0; display: flex; align-items: center; gap: 2px; padding: 2px; border-radius: 14px;
+  border: 1px solid var(--line); background: color-mix(in srgb, var(--ink) 4%, transparent); }
+.wc-go .nav { flex: none; width: auto; min-width: 36px; height: 36px; padding: 0 6px; gap: 4px; display: flex; align-items: center; justify-content: center;
+  border: 0; border-radius: 11px; background: none; color: var(--ink-2); font-size: var(--wz-text-sm, .8125rem); font-weight: 650; white-space: nowrap; }
+.wc-go .nav svg { width: 18px; height: 18px; flex: none; }
+.wc-go .nav.wc-wk svg { width: 20px; height: 20px; }
+.wc-go .nav span { display: none; }
+.wc-go .nav[hidden] { display: none; }
+@media (hover: hover) { .wc-go .nav:hover { background: color-mix(in srgb, var(--ink) 7%, transparent); } }
+.wc-go .nav:active { background: color-mix(in srgb, var(--violet) 18%, transparent); }
+.wc-go .nav:focus-visible { outline: 2px solid var(--violet); outline-offset: -2px; }
+.wc-go.is-week .nav.wc-wk { color: var(--ink); }
+.wc-go .month { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 4px 6px; }
+.wc-go .month .wc-ts { display: none; }
+@container wcapp (max-width: 559px) {
+  .bar { gap: 4px; padding-left: 6px; padding-right: 6px; }
+  .wc-go { gap: 0; padding: 0; }
+  .wc-go .month { font-size: 1.0625rem; padding: 4px 2px; }
+  .wc-go.is-week .month { font-size: 1rem; padding: 4px 1px; }
+  .bar > .nav { flex-shrink: 0; }
+  .wc-go .month .wc-tl { display: none; }
+  .wc-go .month .wc-ts { display: inline; }
+}
+/* Wide windows spell out which arrows move a week and which a day. */
+@container wcapp (min-width: 640px) {
+  .wc-go.is-week .nav { padding: 0 10px; }
+  .wc-go.is-week .nav span:not([hidden]) { display: inline; }
+}
+@media (pointer: coarse) { .wc-go .nav { min-width: 44px; height: 44px; } }
+/* Phone width: the four Week arrows abut (no dead space between them), 40 wide x 44 tall, so the title keeps one line. */
+@container wcapp (max-width: 419px) { .wc-go.is-week .nav { min-width: 40px; padding: 0 4px; } }
+@container wcapp (max-width: 379px) { .wc-go.is-week .nav { min-width: 36px; padding: 0 2px; } .bar > .nav { width: 36px; } }
 .tabs .tab-set { flex: 1; min-width: 0; display: flex; gap: 6px; }
-.tabs .step { flex: 0 0 auto; display: flex; align-items: center; justify-content: center; gap: 2px; height: 42px; min-width: 44px; padding: 0 10px 0 6px;
-  border-radius: 12px; border: 1px solid var(--line); background: color-mix(in srgb, var(--ink) 5%, transparent);
-  color: var(--ink-2); font-size: var(--wz-text-sm, .8125rem); font-weight: 650; white-space: nowrap; }
-.tabs .step[data-step="1"] { padding: 0 6px 0 10px; }
-.tabs .step svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
-.tabs .step:active { background: color-mix(in srgb, var(--violet) 18%, transparent); }
-@media (pointer: coarse) { .tabs .step { height: 44px; } }
-@media (max-width: 340px) { .tabs .step span { display: none; } }
