@@ -301,9 +301,10 @@
     const none = !doc.calendars?.length;
     $('[data-hello]').hidden = !none;
     document.querySelector('.app').classList.toggle('is-empty', none);
-    $('[data-new]').hidden = !liveCals().length;
-    $('[data-status]').textContent = none ? '' : `${doc.events.length} visible events · ${TZ}`;
-    $('[data-status]').hidden = none;
+    for (const b of document.querySelectorAll('[data-new]')) b.hidden = !liveCals().length;
+    // The count is for screen readers only: the calendar itself shows the events.
+    const st = $('[data-status]');
+    if (!(st.dataset.toastUntil > Date.now())) { st.textContent = none ? '' : `${doc.events.length} visible events · ${TZ}`; st.hidden = none; st.classList.add('wc-sr'); }
   }
 
   // Domain overlays use the shared Back stack, never app-owned root guards.
@@ -341,7 +342,7 @@
     const L = e.live;
     const rsvp = L.invited ? `<div class="sec">Your answer</div><div class="rsvp">${RSVP.map(([v, t]) => `<button class="chip-btn${L.my_response === v ? ' on' : ''}" data-rsvp="${v}" data-evid="${esc(e.id)}" aria-pressed="${L.my_response === v}">${t}</button>`).join('')}</div>` : '';
     const edit = L.is_organizer || !L.invited ? `<button class="btn" data-edit="${esc(e.id)}">Edit</button><button class="btn danger" data-del="${esc(e.id)}">Delete</button>` : '';
-    return `${rsvp}${edit ? `<div class="live-acts">${edit}</div>` : ''}${L.recurring ? '<p class="note">Repeating event: changes here apply to this one only where your calendar allows; otherwise to the series.</p>' : ''}`;
+    return `${rsvp}${edit ? `<div class="live-acts">${edit}</div>` : ''}${L.recurring ? '<p class="note">This event repeats. Changes apply to this one when your calendar allows it, otherwise to every repeat.</p>' : ''}`;
   }
   async function livePost(path, body) {
     const r = await fetch(new URL(path, location.href).pathname, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-Wizard-Request': 'calendar' }, body: JSON.stringify(body) });
@@ -354,14 +355,14 @@
   async function rsvp(btn) {
     const e = evById(btn.dataset.evid); if (!e) return;
     for (const b of btn.parentElement.children) { b.disabled = true; }
-    try { await livePost('api/live/respond', { ...target(e), response: btn.dataset.rsvp }); await load(false); openSheet(e.id); say('Answer sent.', true); }
+    try { await livePost('api/live/respond', { ...target(e), response: btn.dataset.rsvp }); closeSheet(); toast(`Answered: ${btn.textContent}`); await load(false); }
     catch (err) { for (const b of btn.parentElement.children) b.disabled = false; say(err.message); }
   }
   async function del(btn) {
     const e = evById(btn.dataset.del); if (!e) return;
     if (btn.dataset.sure !== '1') { btn.dataset.sure = '1'; btn.textContent = 'Delete for good?'; return; }
     btn.disabled = true;
-    try { await livePost('api/live/delete', target(e)); closeSheet(); await load(false); }
+    try { await livePost('api/live/delete', target(e)); closeSheet(); toast('Event deleted'); await load(false); }
     catch (err) { btn.disabled = false; say(err.message); }
   }
   const pad = (n) => String(n).padStart(2, '0');
@@ -384,8 +385,7 @@
         <label class="field">Notes<textarea name="description" rows="3" maxlength="4000">${esc(e?.description || '')}</textarea></label>
         ${e ? '' : `<label class="field">Calendar<select name="cal">${opts}</select></label>`}
         <p class="note">${e ? 'Saved to' : 'Adds the event to'} your ${e ? esc((cals.find((c) => c.id === e.cal) || {}).name || 'calendar') : 'chosen calendar'}. Times are ${esc(TZ)}.</p>
-        <div class="live-acts"><button class="btn primary" type="submit">${e ? 'Save' : 'Add event'}</button></div>
-        <div class="msg" data-c-msg role="status"></div>
+        <div class="live-acts"><div class="msg" data-c-msg role="status"></div><button class="btn primary" type="submit">${e ? 'Save' : 'Add event'}</button></div>
       </form>`;
     const f = $('[data-form]');
     const sync = () => { for (const n of f.querySelectorAll('.t')) n.hidden = f.allDay.checked; };
@@ -411,7 +411,7 @@
     try {
       if (e) await livePost('api/live/update', { ...target(e), ...body });
       else await livePost('api/live/create', { account: f.cal.value, ...body });
-      sel = f.day.value; closeSheet(); await load(false);
+      sel = f.day.value; closeSheet(); toast(e ? 'Event saved' : 'Event added'); await load(false);
     } catch (err) { btn.disabled = false; btn.textContent = e ? 'Save' : 'Add event'; say(err.message); }
   }
   function connect(source, backToSettings) {
@@ -535,7 +535,7 @@
     document.querySelector('[data-status]').textContent = 'Wizard core is missing. Follow the standalone setup in README.md.';
     return;
   }
-  WizardApp.ready({ name: 'Calendar', version: '0.3.4' });
+  WizardApp.ready({ name: 'Calendar', version: '0.3.6' });
 
   // Settings: Connected accounts + Agent access (settings.js, Mail's and Messenger's design), then private iCal links
   // and the snapshot (read-only). The private iCal URL is submitted once and never rendered back into the page.
@@ -601,6 +601,8 @@
     finally { hold.release(); }
   }
 
+  // The shell's toast (WizardApp.shell.toast); the sheet's message line when there is no shell.
+  const toast = (t) => { let shown = false; try { shown = !!WizardApp.shell?.toast?.('✓', t); } catch (_) { /* standalone */ } if (!shown) { const s = $('[data-status]'); s.classList.remove('wc-sr'); s.hidden = false; s.textContent = t; s.dataset.toastUntil = Date.now() + 4000; } };
   const say = (t, ok) => { const m = $('[data-c-msg]'); if (m) { m.className = `msg ${ok ? 'ok' : 'err'}`; m.textContent = t; } };
 
   document.addEventListener('change', async event => {
@@ -740,7 +742,7 @@
       render();
       if (refresh && d.syncing) { await new Promise((ok) => setTimeout(ok, 2500)); return load(false); }
     } catch (err) {
-      $('[data-status]').textContent = 'Unable to load calendar. Open Settings and Sync now to retry.';
+      $('[data-status]').textContent = 'Unable to load calendar. Open Settings and Sync now to retry.'; $('[data-status]').classList.remove('wc-sr'); $('[data-status]').hidden = false;
       $('[data-foot]').textContent = 'Unable to load calendar. Open Settings and Sync now to retry.';
       throw err;
     }
