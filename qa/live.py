@@ -30,6 +30,7 @@ class Fake:
     def __init__(self, sid, email):
         self.sid, self.email, self.calls = sid, email, []
         self.level = 'suggest_only'
+        self.per_agent = False
         self.suggestions = [{'id': f'sg_{"a" if sid == "google" else "b"}000000000000001', 'tool': 'calendar_create_event', 'action': 'create',
                              'account': email, 'agent': 'agent:main', 'created': '2026-10-31T09:00:00+00:00',
                              'args': {'title': 'Gym', 'start': '2026-11-04T07:00:00+07:00', 'end': '2026-11-04T08:00:00+07:00'}}]
@@ -60,7 +61,7 @@ class Fake:
             def do_GET(self):
                 assert not self.headers.get('Origin') and not self.headers.get('Cookie')
                 self.reply(200, {'accounts': [{'email': fake.email, 'status': 'active', 'services': ['gmail' if sid == 'google' else 'mail', 'calendar'], 'via': 'composio'}],
-                                 'calendar_access': {'level': fake.level, 'label': fake.level}})
+                                 'calendar_access': {'level': fake.level, 'label': fake.level}, **({'per_agent_callers': True} if fake.per_agent else {})})
 
             def do_POST(self):
                 body = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
@@ -103,7 +104,7 @@ def main():
     grants = Path(data).parent / f'grants-{port}.json'
     env = dict(os.environ, PORT=str(port), DATA_DIR=data, ICAL_SYNC_INTERVAL='0', CALENDAR_TIMEZONE='Asia/Bangkok',
                CALENDAR_SOURCES=f'google={g.base},microsoft={m.base}', CALENDAR_DEV_MODE='loopback-single-owner',
-               WIZARD_GRANTS_FILE=str(grants))
+               WIZARD_GRANTS_FILE=str(grants), CALENDAR_PER_AGENT_TTL='0')
     proc = subprocess.Popen([sys.executable, str(ROOT / 'app/server.py')], env=env, cwd=ROOT / 'app')
     try:
         for _ in range(50):
@@ -148,7 +149,8 @@ def main():
         check('agent has no write tool', [t['name'] for t in tools['result']['tools']] == ['calendar_events'])
 
         status, mcp = req('/mcp', {'jsonrpc': '2.0', 'id': 3, 'method': 'tools/call', 'params': {'name': 'calendar_events'}}, {'X-Wizard-Agent': 'helper'})
-        check('agent name passed on, never a grant', [c for c in g.calls if c[0] == 'calendar_list_events'][-1][2:] == ('helper', None))
+        # No gateway row on this box yet: a self-declared name is not believed; the call is the main agent's.
+        check('unverified agent name is not passed on', [c for c in g.calls if c[0] == 'calendar_list_events'][-1][2:] == ('main', None))
         check('agents see no suggestions', json.loads(mcp['result']['content'][0]['text'])['suggestions'] == [])
 
         body = {'account': 'live:microsoft:me@outlook.com', 'title': 'Dentist', 'start': '2026-11-05T10:00', 'end': '2026-11-05T11:00', 'time_zone': 'Asia/Bangkok', 'location': 'Soi 24'}
@@ -158,6 +160,25 @@ def main():
         grants.write_text(json.dumps({'outgoing': {'wizard-google': 'grant-google-0123456789', 'wizard-microsoft': 'grant-microsoft-0123456789'}}))
         status, view = req('/api/events?from=2026-10-12&to=2026-12-21', None, {'X-Wizard-Request': 'calendar'})
         check('owner page reads with the grant', [c for c in g.calls if c[0] == 'calendar_list_events'][-1][3] == 'grant-google-0123456789')
+        # The box's App Manager writes the gateway's row: only the gateway's grant makes an agent call, and its name is
+        # passed on (an older source that does not announce per-agent callers gets the name without Calendar's grant).
+        import hashlib
+        gw_key = 'gateway-grant-key-0123456789abcdef'
+        doc = json.loads(grants.read_text())
+        doc['incoming'] = [{'from': 'host:agent-service', 'sha256': hashlib.sha256(gw_key.encode()).hexdigest()}]
+        grants.write_text(json.dumps(doc))
+        events = {'jsonrpc': '2.0', 'id': 4, 'method': 'tools/call', 'params': {'name': 'calendar_events'}}
+        status, _ = req('/mcp', events, {'X-Wizard-Agent': 'secure'})
+        check('direct agent call refused once the gateway has its row', status == 401)
+        status, mcp = req('/mcp', events, {'X-Wizard-Grant': gw_key, 'X-Wizard-Agent': 'secure'})
+        check('gateway-named agent passed on', status == 200 and [c for c in g.calls if c[0] == 'calendar_list_events'][-1][2:] == ('secure', None))
+        g.per_agent = True
+        req('/mcp', events, {'X-Wizard-Grant': gw_key, 'X-Wizard-Agent': 'second'})
+        check('per-agent source gets Calendar grant with the verified name',
+              [c for c in g.calls if c[0] == 'calendar_list_events'][-1][2:] == ('second', 'grant-google-0123456789'))
+        g.per_agent = False
+        doc['incoming'] = []
+        grants.write_text(json.dumps(doc))
         check('owner sees both suggestions', sorted(x['source'] for x in view['suggestions']) == ['google', 'microsoft']
               and view['suggestions'][0]['title'] == 'Gym' and view['suggestions'][0]['account'].startswith('live:'))
         reads = len([c for c in g.calls + m.calls if c[0] == 'calendar_list_events'])
