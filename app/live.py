@@ -27,14 +27,18 @@ DATETIME = re.compile(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d
 EMAIL = re.compile(r'^[^@\s<>,;"]{1,64}@[A-Za-z0-9.-]{1,253}\.[A-Za-z]{2,}$')
 RESPONSES = ('accepted', 'declined', 'tentative')
 OWNER = 'owner'
-AGENT_NAME = re.compile(r'[a-z0-9][a-z0-9_-]{0,62}')
+# A box whose App Manager does not write the gateway's row yet: Calendar cannot tell agents apart, so the call is the
+# main agent's and Calendar does not vouch for any name.
+LOCAL = 'local:main'
+PER_AGENT_TTL = float(os.environ.get('CALENDAR_PER_AGENT_TTL', '300'))
+AGENT_NAME = re.compile(r'[a-z0-9][a-z0-9_-]{0,63}')
 SUGGESTION_ID = re.compile(r'sg_[0-9a-f]{16}')
 OLD_SOURCE = ('agent_access_denied', 'agent_approve_refused')
 READS = ('/v1/status', '/v1/calendar_list_events')
 
 
 def agent(name):
-    """The caller for a request made by an agent through Calendar's MCP. The source applies the owner's agent level."""
+    """The caller for an agent the gateway named (its grant matched). The source applies the owner's agent level."""
     name = str(name or 'main').strip().lower()
     return 'agent:' + (name if AGENT_NAME.fullmatch(name) else 'main')
 
@@ -87,24 +91,48 @@ def parse_sources(value):
 
 
 class Source:
-    def __init__(self, sid, base, timeout=30, grants=None):
+    def __init__(self, sid, base, timeout=30, grants=None, clock=time.time):
         self.id, self.base, self.timeout = sid, base, timeout
         self.grants = grants
+        self.clock = clock
+        self.per_agent = (None, 0.0)  # does this source take Calendar's grant plus a verified agent name? (answer, when)
         self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
+    def relays_agents(self, grant):
+        """True when this source applies the named agent's own level to Calendar's grant plus X-Wizard-Agent. An older
+        source would take Calendar's grant as the owner's tap, so Calendar never sends it with an agent's name there."""
+        known, at = self.per_agent
+        if known is not None and self.clock() - at < PER_AGENT_TTL:
+            return known
+        try:
+            known = self._open('GET', '/v1/status', None, {'X-Wizard-Grant': grant}).get('per_agent_callers') is True
+        except LiveError:
+            known = False
+        self.per_agent = (known, self.clock())
+        return known
+
     def call(self, method, path, body=None, caller=None):
-        data = json.dumps(body).encode() if body is not None else None
-        headers = {'Accept': 'application/json', 'Content-Type': 'application/json'}
-        grant = self.grants.token(APPS[self.id]) if caller == OWNER and self.grants else None
+        headers = {}
+        all_grant = self.grants.token(APPS[self.id]) if self.grants else None
+        grant = all_grant if caller == OWNER else None
         if caller == OWNER and not grant and not path.endswith(READS):
             # Without its grant Calendar would look like an agent: the owner's change would only be suggested.
             raise LiveError(403, 'owner_not_recognised', f'Calendar can\'t prove it is you to the {NAMES[self.id]} app yet. '
                             'Update Calendar from the App Store, then try again.')
         if grant:
             headers['X-Wizard-Grant'] = grant  # the owner's own tap in Calendar
+        elif caller and caller.startswith('agent:') and all_grant and self.relays_agents(all_grant):
+            # An agent the gateway named to Calendar: Calendar vouches for the name with its grant.
+            headers.update({'X-Wizard-Grant': all_grant, 'X-Wizard-Agent': caller.split(':', 1)[1]})
         else:
-            # An agent (through Calendar's MCP) or Calendar without a grant: the source applies the owner's agent level.
-            headers['X-Wizard-Agent'] = caller.split(':', 1)[-1] if caller and caller != OWNER else 'wizard-calendar'
+            # A box without the gateway's row (LOCAL), or Calendar without a grant: the source decides as before.
+            headers['X-Wizard-Agent'] = caller.split(':', 1)[1] if caller and caller.startswith('agent:') else (
+                'main' if caller == LOCAL else 'wizard-calendar')
+        return self._open(method, path, body, headers, caller)
+
+    def _open(self, method, path, body, extra, caller=None):
+        data = json.dumps(body).encode() if body is not None else None
+        headers = {'Accept': 'application/json', 'Content-Type': 'application/json', **extra}
         request = urllib.request.Request(self.base + path, data=data, method=method, headers=headers)
         try:
             with self.opener.open(request, timeout=self.timeout) as response:
