@@ -1,0 +1,83 @@
+name: Alpha arm64 archive
+# Tooling-only workflow (lives on tooling/alpha-archive-arm64; never part of a release commit).
+# Builds ONE exact source commit natively on GitHub's arm64 runner (no emulation) with the repo's own
+# tools/alpha_runner.py recipe: headless QA, `docker build` with the exact
+# org.opencontainers.image.revision label and compose tag, hardened image smoke (UID/GID 1000, read-only,
+# ALL caps dropped, /data writable, Docker healthy), then `docker save | gzip -n`.
+# No secrets, no registry push; contents: read only.
+on:
+  workflow_dispatch:
+    inputs:
+      sha: {description: 'Full release commit SHA to build', required: true}
+permissions:
+  contents: read
+jobs:
+  archive:
+    if: github.repository == 'humanitylabs-org/wizard-calendar'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    env:
+      SHA: ${{ inputs.sha }}
+    steps:
+      - name: Validate input
+        run: |
+          set -eu
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$(uname -m)" = aarch64
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Exact commit, clean tree
+        run: |
+          set -eu
+          test "$(git rev-parse HEAD)" = "$SHA"
+          test -z "$(git status --porcelain)"
+      - name: Build, headless QA, hardened smoke and export (repo recipe, arm64)
+        env:
+          ARCH: arm64
+          SOURCE_REVISION: ${{ inputs.sha }}
+          DOCKER_CMD: docker
+        run: python3 tools/alpha_runner.py
+      - name: Inspect archive manifest (no load)
+        run: |
+          set -eu
+          sha256sum wizard-calendar-arm64.tar.gz | tee wizard-calendar-arm64.tar.gz.sha256
+          python3 - <<'PY'
+          import json,os,tarfile
+          t=tarfile.open('wizard-calendar-arm64.tar.gz','r:gz')
+          m=json.load(t.extractfile('manifest.json'))
+          cfg=m[0]['Config']; c=json.load(t.extractfile(cfg))
+          out={'repo_tags':m[0]['RepoTags'],'config_digest':'sha256:'+cfg.rsplit('/',1)[1],'architecture':c['architecture'],'os':c['os'],
+               'user':c['config'].get('User'),'revision':c['config']['Labels'].get('org.opencontainers.image.revision')}
+          print(json.dumps(out,indent=1)); json.dump(out,open('evidence/archive-manifest.json','w'),indent=1)
+          assert out['revision']==os.environ['SHA'] and out['architecture']=='arm64' and out['repo_tags']==['wizard-calendar:0.3.0-alpha.1']
+          PY
+          cat evidence/release-arm64.json
+          { echo '```json'; cat evidence/archive-manifest.json evidence/release-arm64.json; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - name: Synthetic Compose sync recipe on the exact image (non-blocking harness)
+        id: compose
+        continue-on-error: true
+        run: |
+          set -eu
+          python3 tools/fetch_core.py
+          mkdir -p "$RUNNER_TEMP/pw"
+          npm install --prefix "$RUNNER_TEMP/pw" --ignore-scripts --no-audit --no-fund playwright@1.56.1
+          export NODE_PATH="$RUNNER_TEMP/pw/node_modules"
+          node "$RUNNER_TEMP/pw/node_modules/playwright/cli.js" install --with-deps chromium
+          export QA_CHROME=$(node -e "process.stdout.write(require('playwright').chromium.executablePath())")
+          python3 -c "import runpy; m=runpy.run_path('qa/thales_sync.py'); m['compose_tests']()" 2>&1 | tee evidence/calendar-native-compose.log
+      - name: Record compose-check outcome
+        if: always()
+        run: echo "compose_outcome=${{ steps.compose.outcome }}" | tee evidence/compose-outcome.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: calendar-arm64-${{ inputs.sha }}
+          path: |
+            wizard-calendar-arm64.tar.gz
+            wizard-calendar-arm64.tar.gz.sha256
+            evidence/
+          if-no-files-found: error
+          retention-days: 30
