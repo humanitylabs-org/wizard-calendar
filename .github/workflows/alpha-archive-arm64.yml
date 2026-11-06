@@ -72,7 +72,11 @@ jobs:
         id: compose
         continue-on-error: true
         run: |
-          set -eu
+          set -euo pipefail
+          mkdir -p evidence
+          ( while true; do for c in $(docker ps -aq --filter name=calendar-sync-qa); do echo "== $(date -u +%T) $(docker inspect -f '{{.Name}} {{.State.Status}} exit={{.State.ExitCode}}' $c)"; docker logs --tail 40 $c 2>&1; done; sleep 4; done > evidence/compose-container-logs.txt 2>&1 ) &
+          watcher=$!
+          trap 'kill $watcher 2>/dev/null || true' EXIT
           python3 tools/fetch_core.py
           mkdir -p "$RUNNER_TEMP/pw"
           npm install --prefix "$RUNNER_TEMP/pw" --ignore-scripts --no-audit --no-fund playwright@1.56.1
