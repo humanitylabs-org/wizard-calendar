@@ -74,7 +74,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p evidence
-          ( while true; do for c in $(docker ps -aq --filter name=calendar-sync-qa); do echo "== $(date -u +%T) $(docker inspect -f '{{.Name}} {{.State.Status}} exit={{.State.ExitCode}}' $c)"; docker logs --tail 40 $c 2>&1; done; sleep 4; done > evidence/compose-container-logs.txt 2>&1 ) &
+          ( while true; do for c in $(docker ps -aq --filter name=calendar-sync-qa); do echo "== $(date -u +%T) $(docker inspect -f '{{.Name}} {{.State.Status}} exit={{.State.ExitCode}}' $c)"; docker logs --tail 40 $c 2>&1; p=$(docker port $c 8799/tcp 2>/dev/null | head -1 | sed 's/.*://'); [ -n "$p" ] && { echo "-- probe port $p"; curl -sS -m 3 -i -H "Host: 127.0.0.1:$p" http://127.0.0.1:$p/api/sync 2>&1 | head -c 700; echo; }; done; sleep 4; done > evidence/compose-container-logs.txt 2>&1 ) &
           watcher=$!
           trap 'kill $watcher 2>/dev/null || true' EXIT
           python3 tools/fetch_core.py
