@@ -77,6 +77,13 @@ jobs:
           ( while true; do for c in $(docker ps -aq --filter name=calendar-sync-qa); do echo "== $(date -u +%T) $(docker inspect -f '{{.Name}} {{.State.Status}} exit={{.State.ExitCode}}' $c)"; docker logs --tail 40 $c 2>&1; p=$(docker port $c 8799/tcp 2>/dev/null | head -1 | sed 's/.*://'); [ -n "$p" ] && { echo "-- probe port $p"; curl -sS -m 3 -i -H "Host: 127.0.0.1:$p" http://127.0.0.1:$p/api/sync 2>&1 | head -c 700; echo; }; done; sleep 4; done > evidence/compose-container-logs.txt 2>&1 ) &
           watcher=$!
           trap 'kill $watcher 2>/dev/null || true' EXIT
+          # The release image is built from 27102938; the Compose harness fixes live only in the test-only delta
+          # b3010845 (qa.cjs, qa/test_callback_contract.cjs, qa/test_compose_contract.py, qa/thales_sync.py).
+          # Overlay exactly those files, after the image is built and archived; app/runtipi/Dockerfile stay untouched.
+          git fetch --depth=2 origin b30108457584f32e70f4803ba5525f9f82b4bda0
+          test "$(git rev-parse FETCH_HEAD)" = b30108457584f32e70f4803ba5525f9f82b4bda0
+          test "$(git diff --name-only "$SHA" FETCH_HEAD | sort | tr '\n' ' ')" = "qa.cjs qa/test_callback_contract.cjs qa/test_compose_contract.py qa/thales_sync.py "
+          git checkout FETCH_HEAD -- qa.cjs qa/test_callback_contract.cjs qa/test_compose_contract.py qa/thales_sync.py
           python3 tools/fetch_core.py
           mkdir -p "$RUNNER_TEMP/pw"
           npm install --prefix "$RUNNER_TEMP/pw" --ignore-scripts --no-audit --no-fund playwright@1.56.1
