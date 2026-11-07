@@ -12,7 +12,7 @@ version = match[1]
 # Published by .github/workflows/app-image.yml (multi-arch index, public on GHCR); update both
 # the commit tag and the digest together when the image is rebuilt.
 IMAGE = ('ghcr.io/humanitylabs-org/wizard-calendar:sha-%s@%s'
-         % ('2000387fafd939091688f783022bdb48b4be82b4', 'sha256:c9b5bfd45a57cb01206ff7ae67f9c009ba0dc12c69a7df503f0648a976c523e9'))
+         % ('06e2735926bef4811bb4865f27dc1924a0572a17', 'sha256:af46cdeed6423a9aae2ee221a63f5698df2c00d5626c6d3d97b9a5e981675be2'))
 common = {
     'image': IMAGE,
     'cap_drop': ['ALL'], 'security_opt': ['no-new-privileges:true'],
