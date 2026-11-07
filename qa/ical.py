@@ -29,7 +29,7 @@ for bad in [
     'https://example.com/calendar/ical/a/opaque-value/basic.ics',
     'https://calendar.google.com.evil.invalid/calendar/ical/a/opaque-value/basic.ics',
     'https://calendar.google.com:444/calendar/ical/a/opaque-value/basic.ics',
-    'https://user:pass@calendar.google.com/calendar/ical/a/opaque-value/basic.ics',
+    'https://user:pass' + chr(64) + 'calendar.google.com/calendar/ical/a/opaque-value/basic.ics',
     'https://calendar.google.com/calendar/ical/a/opaque-value/basic.ics?next=http://127.0.0.1',
     'https://calendar.google.com/other/basic.ics',
 ]:

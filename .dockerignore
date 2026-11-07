@@ -1,6 +1,8 @@
 **
 !app/
 !app/server.py
+!app/ical_feed.py
+!app/prepare_data.py
 !web/
 !web/*
 !openapi.json

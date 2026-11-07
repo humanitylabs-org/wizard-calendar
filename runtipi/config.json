@@ -3,15 +3,15 @@
   "id": "wizard-calendar",
   "wizard_type": "view",
   "available": true,
-  "short_desc": "Read-only calendars from private Google iCal links.",
+  "short_desc": "Read-only calendar from Google iCal links and Connected accounts.",
   "author": "Humanity Labs",
   "port": 8799,
   "categories": [
     "utilities"
   ],
-  "description": "Private read-only calendar viewer with Google iCal subscriptions and snapshot import.",
+  "description": "Private Google iCal subscriptions and Google calendars synced through Connected accounts; see OSCAR-SETUP.md.",
   "tipi_version": 1,
-  "version": "0.1.0",
+  "version": "0.3.0",
   "source": "https://github.com/humanitylabs-org/wizard-calendar",
   "exposable": false,
   "supported_architectures": [
@@ -24,6 +24,15 @@
   "min_tipi_version": "4.8.0",
   "uid": 1000,
   "gid": 1000,
-  "form_fields": [],
+  "form_fields": [
+    {
+      "type": "text",
+      "env_variable": "CALENDAR_TIMEZONE",
+      "label": "Owner timezone (IANA name, optional)",
+      "required": false,
+      "default": "",
+      "hint": "For example Asia/Bangkok. Leave empty to display each browser's timezone; sync window then uses UTC."
+    }
+  ],
   "no_gui": false
 }

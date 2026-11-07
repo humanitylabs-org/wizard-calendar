@@ -3,7 +3,9 @@ services:
     build:
       context: .
       dockerfile: app/Dockerfile
-    image: "${CALENDAR_IMAGE:-wizard-calendar-test:0.1.0}"
+    image: wizard-calendar:0.3.0
+    pull_policy: never
+    user: "1000:1000"
     ports: ["127.0.0.1:${CALENDAR_PORT:-18787}:8799"]
     environment:
       BIND: 0.0.0.0

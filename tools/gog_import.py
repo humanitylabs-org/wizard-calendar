@@ -31,7 +31,7 @@ def export(config, gog):
         raw = json.loads(result.stdout)
         if not isinstance(raw, dict) or not isinstance(raw.get('events'), list) or raw.get('nextPageToken'):
             raise ValueError('Incomplete or unexpected gog result; no import performed')
-        doc['calendars'].append({'id': cid, 'name': cal['name']})
+        doc['calendars'].append({'id': cid, 'name': cal['name'], 'account': account})
         seen = set()
         for event in raw['events']:
             if event.get('status') == 'cancelled': continue
@@ -41,7 +41,7 @@ def export(config, gog):
             eid = str(event['id'])
             if eid in seen: continue
             seen.add(eid)
-            doc['events'].append({'id': cid + '::' + eid, 'cal': cid, 'title': (event.get('summary') or '(No title)')[:300], 'start': s.get('date') if allday else s.get('dateTime'), 'end': e.get('date') if allday else e.get('dateTime'), 'allDay': allday, 'description': (event.get('description') or '')[:4000], 'location': (event.get('location') or '')[:500], 'link': event.get('htmlLink') or '', 'meet': event.get('hangoutLink') or ''})
+            doc['events'].append({'id': cid + '::' + eid, 'cal': cid, 'title': (event.get('summary') or '(No title)')[:300], 'start': s.get('date') if allday else s.get('dateTime'), 'end': e.get('date') if allday else e.get('dateTime'), 'allDay': allday, 'description': (event.get('description') or '')[:4000], 'location': (event.get('location') or '')[:500], 'link': event.get('htmlLink') or '', 'meet': event.get('hangoutLink') or '', 'attendees': len(event.get('attendees') or []), 'uid': event.get('iCalUID') or eid})
     return validate(doc)
 
 

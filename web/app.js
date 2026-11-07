@@ -2,7 +2,8 @@
 (() => {
   const $ = (s) => document.querySelector(s);
   const API = new URL('api/events', location.href).pathname;
-  let TZ = 'UTC';
+  const browserTZ = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  let TZ = browserTZ;
   let doc = null, byDay = new Map(), view = null, sel = null, sheetOpen = false;
   const MODES = ['day', 'week', 'month'], HOUR = 48;
   let mode = MODES.includes(localStorage.getItem('wc.mode')) ? localStorage.getItem('wc.mode') : 'week';
@@ -93,8 +94,12 @@
     const when = doc.syncedAt ? fmtSynced(doc.syncedAt) : 'never';
     const cals = (doc.calendars || []).filter((c) => !c.hidden).map((c) => `${esc(c.name)}`).join(' · ');
     const err = doc.syncError || (doc.errors || []).join('; ');
-    const source = (doc.connected || []).length ? 'Updated' : 'Imported';
-    $('[data-foot]').innerHTML = `Calendar · ${cals}<br>${source} ${when} · <button class="lnk" data-cals>Settings</button>${err ? `<br><span class="err">Sync issue: ${esc(err)}</span>` : ''}`;
+    const parts = [];
+    if (doc.source === 'connected_accounts') parts.push('Connected accounts');
+    if ((doc.connected || []).length) parts.push('Google iCal');
+    const origin = parts.length ? parts.join(' + ') : doc.calendars?.length ? 'Manual snapshot' : 'Calendar';
+    const updated = parts.length ? 'Updated' : 'Imported';
+    $('[data-foot]').innerHTML = `${origin} · ${cals}<br>${updated} ${when} · <button class="lnk" data-cals>Settings</button>${err ? `<br><span class="err">Sync issue: ${esc(err)}</span>` : ''}`;
   }
 
   // ---- Day / Week time grid ----
@@ -226,12 +231,9 @@
     if (mode === 'month') { renderGrid(); renderAgenda(); } else renderTime();
   }
 
-  // Calendars take the skin's palette (CSS --k0…, --k-holiday), not Google's colours. Stable by calendar order.
+  // Preserve the live Calendar's skin palette; stored provider colors stay intact.
   function skinColours() {
-    const slot = new Map(); let n = 0;
-    for (const c of doc.calendars || []) slot.set(c.id, /#holiday@/.test(c.id) ? 'var(--k-holiday)' : `var(--k${n++ % 5})`);
-    for (const c of doc.calendars || []) c.color = slot.get(c.id);
-    for (const e of doc.events || []) if (slot.has(e.cal)) e.color = slot.get(e.cal);
+    CalendarAppearance.colourCalendars(doc);
   }
   function renderTodayBtn() { $('[data-today-num]').textContent = +todayKey().slice(8); }
   function goToday() {
@@ -240,7 +242,25 @@
     else renderTime();
   }
 
-  function render() { skinColours(); index(); renderTodayBtn(); renderView(); renderFoot(); $('[data-status]').textContent = doc.calendars?.length ? `${doc.events.length} visible events · ${TZ}` : 'No calendar yet. Open Settings to add a Google iCal link.'; }
+  const setupMessages = {
+    not_linked: 'Connect your Google account in Connected accounts, then turn on Calendar for it.',
+    needs_google_app: 'Add your own Google OAuth app once in Connected accounts. Calendar never receives your Google credentials.',
+    needs_account: 'Your Google app is ready. Sign in to your Google account in Connected accounts.',
+    needs_permission: 'Allow read-only calendar access or reconnect the account in Connected accounts.',
+    error: 'Sync could not finish. Open Settings to review the error and try again.',
+    ok: 'No calendars are available yet. Check your account in Connected accounts.'
+  };
+  const setupLink = () => `<a class="btn wz-button" data-connect href="${esc(doc?.sync?.setup_url || '/wizard-connectors/')}" target="_top">Open Connected accounts</a>`;
+  function render() {
+    skinColours(); index(); renderTodayBtn(); applyMode(); renderView(); renderFoot();
+    const empty = !doc.calendars?.length;
+    $('[data-setup]').hidden = !empty;
+    if (empty) {
+      $('[data-scroll]').hidden = true; $('[data-time]').hidden = true;
+      $('[data-setup]').innerHTML = `<h1>Connect your Google calendar</h1><p>${esc(setupMessages[doc.sync?.state] || setupMessages.not_linked)}</p><p>Your events sync automatically. You can also add a private Google iCal link in Settings. Calendar only reads events, never changes them.</p>${setupLink()}<button class="lnk" data-cals>Settings · add a Google iCal link or import a snapshot instead</button>`;
+    }
+    $('[data-status]').textContent = empty ? 'No calendar yet. Connect Google accounts or add a Google iCal link in Settings.' : `${doc.events.length} visible events · ${TZ}`;
+  }
 
   // Domain overlays use the shared Back stack, never app-owned root guards.
   let sheetBack = null;
@@ -276,13 +296,22 @@
     document.querySelector('[data-status]').textContent = 'Wizard core is missing. Follow the standalone setup in README.md.';
     return;
   }
-  WizardApp.ready({ name: 'Calendar', version: '0.1.0' });
+  WizardApp.ready({ name: 'Calendar', version: '0.3.0' });
 
-  // Read-only sources: the private iCal URL is submitted once and never rendered back into the page.
+  // Connected accounts hold all Google authorization; private iCal links are submitted once and never rendered back.
   function openCals() {
-    const list = (doc?.calendars || []).map(c => `<button class="cal${c.hidden ? ' off' : ''}" data-vis="${esc(c.id)}" role="switch" aria-checked="${!c.hidden}"><i style="background:${esc(c.color)}"></i><span class="nm">${esc(c.name)}<small>${c.hidden ? 'Hidden' : `${c.count} events`}</small></span><span class="sw"></span></button>`).join('');
-    const sources = (doc?.connected || []).map(source => `<div class="source"><span class="nm">${esc(source.name)}<small>${source.error ? esc(source.error) : source.lastSyncedAt ? `Updated ${esc(fmtSynced(source.lastSyncedAt))}` : 'Google iCal'}</small></span><button class="remove" data-remove-source="${esc(source.id)}">Remove</button></div>`).join('');
-    $('[data-sheet]').innerHTML = `<div class="sh-top"><span class="grab"></span><button class="x" data-close aria-label="Close">✕</button></div><h2>Settings</h2><p class="note">Calendar is read-only. Add a private Google iCal link to see that calendar here.</p><div class="sync"><span>${doc?.syncedAt ? `Updated ${esc(fmtSynced(doc.syncedAt))}` : 'No calendar added'}</span><button class="btn" data-sync>Sync now</button></div><div class="sec">Your calendars</div>${sources || '<p class="note">No Google iCal calendars added.</p>'}<div class="sec">Add calendar</div><label class="field">Calendar name<input type="text" data-source-name maxlength="300" autocomplete="off" placeholder="Personal"></label><label class="field">Google iCal link<input type="text" data-source-url maxlength="4096" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://calendar.google.com/…/basic.ics"></label><p class="note">Use the private iCal link from Google Calendar settings. Anyone with that link can read the calendar, so it stays private on this Wizard.</p><button class="btn" data-add-source>Add calendar</button><div class="sec">Visible calendars</div>${list || '<p class="note">Calendars appear here after they are added.</p>'}<div class="sec">Advanced</div><p class="note">Snapshot import replaces the current visible snapshot, not your Google calendar. Your saved iCal links remain and return on the next sync.</p><input type="file" data-import accept="application/json,.json" aria-label="Import snapshot JSON"><a class="btn" href="api/export" download="calendar-snapshot.json">Export snapshot</a><div class="msg" data-c-msg role="status"></div>`;
+    const sources = doc?.connected || [];
+    const iCalIds = new Set(sources.map(source => source.id));
+    const groups = new Map();
+    for (const c of doc?.calendars || []) {
+      const account = c.account || (iCalIds.has(c.id) ? 'Google iCal' : '');
+      if (!groups.has(account)) groups.set(account, []);
+      groups.get(account).push(c);
+    }
+    const list = [...groups].map(([account, cals]) => (account ? `<div class="sec">${esc(account)}</div>` : '') + cals.map(c => `<button class="cal${c.ok ? '' : ' bad'}${c.hidden ? ' off' : ''}" data-vis="${esc(c.id)}" role="switch" aria-checked="${!c.hidden}"><i style="background:${esc(c.color)}"></i><span class="nm">${esc(c.name)}<small>${c.hidden ? 'Hidden' : c.ok ? `${c.count} events` : 'Sync failed'}</small>${c.error ? `<small class="err">${esc(c.error)}</small>` : ''}</span><span class="sw"></span></button>`).join('')).join('');
+    const sourceRows = sources.map(source => `<div class="source"><span class="nm">${esc(source.name)}<small>${source.error ? esc(source.error) : source.lastSyncedAt ? `Updated ${esc(fmtSynced(source.lastSyncedAt))}` : 'Google iCal'}</small></span><button class="remove" data-remove-source="${esc(source.id)}">Remove</button></div>`).join('');
+    const lastSync = doc?.sync?.last_success || doc?.syncedAt;
+    $('[data-sheet]').innerHTML = `<div class="sh-top"><span class="grab"></span><button class="x" data-close aria-label="Close">✕</button></div><h2>Settings</h2><p class="note">Calendar is read-only. It shows Google calendars from Connected accounts and private Google iCal links.</p><div class="sync"><span>${lastSync ? `Last sync ${esc(fmtSynced(lastSync))}` : 'Not synced yet'}${doc?.sync ? ` · every ${esc(doc.sync.interval_minutes || 10)} min` : ''}</span><button class="btn wz-button" data-sync>Sync now</button></div><section data-sync-section><div class="sec">Connected accounts</div>${(doc?.sync?.accounts || []).map(a => `<p class="note">${esc(a.email)} · ${a.calendar_allowed ? esc(a.status) : 'Calendar permission needed'}</p>`).join('') || '<p class="note">No linked accounts yet.</p>'}<p class="note">${esc(doc?.sync?.state === 'ok' ? 'Read-only sync is connected.' : setupMessages[doc?.sync?.state] || 'Read-only sync is connected.')}</p>${setupLink()}${doc?.sync?.last_error ? `<p class="msg err" role="alert">${esc(doc.sync.last_error)}</p>` : ''}<p class="note">Snapshot source: ${doc?.source === 'connected_accounts' ? 'Connected accounts' : doc?.source === 'manual_import' ? 'Manual import' : sources.length ? 'Google iCal' : 'Empty'}</p></section><div class="sec">Your Google iCal calendars</div>${sourceRows || '<p class="note">No Google iCal calendars added.</p>'}<div class="sec">Add calendar</div><label class="field">Calendar name<input type="text" data-source-name maxlength="300" autocomplete="off" placeholder="Personal"></label><label class="field">Google iCal link<input type="text" data-source-url maxlength="4096" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://calendar.google.com/…/basic.ics"></label><p class="note">Use the private iCal link from Google Calendar settings. Anyone with that link can read the calendar, so it stays private on this Wizard.</p><button class="btn" data-add-source>Add calendar</button><div class="sec">Visible calendars</div>${list || '<p class="note">Connect Google above, add an iCal link, or import a manual snapshot below.</p>'}<div class="sec">Advanced</div><p class="note">Snapshot import replaces the local snapshot, not your Google calendar. Saved iCal links stay and return on the next sync; the next Connected accounts sync replaces imported data again when linked. Export a backup first if needed. Only import files you intend to show here.</p><input type="file" data-import accept="application/json,.json" aria-label="Import snapshot JSON"><a class="btn" href="api/export" download="calendar-snapshot.json">Export snapshot</a><div class="msg" data-c-msg role="status"></div>`;
     showSheet();
     if (!sheetOpen) { sheetOpen = true; sheetBack = WizardApp.back.push(() => { closeSheet(); return true; }); }
   }
@@ -408,14 +437,25 @@
   async function syncNow(btn) {
     btn.disabled = true; btn.textContent = 'Syncing…';
     try {
+      // Connected accounts refresh in the background (the reply carries its state); iCal links refresh before the reply.
       const result = await post('api/sync', {});
+      if (result.state !== undefined) {
+        for (let i = 0; i < 120; i++) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          const response = await fetch(new URL('api/sync', location.href).pathname, {cache:'no-store'});
+          if (!response.ok) throw new Error('Unable to read sync status.');
+          if (!(await response.json()).syncing) break;
+        }
+      }
       await load(false);
       if (sheetOpen) {
         openCals();
-        if (result.syncing) say('A calendar sync is already running.');
-        else say(result.failed ? `${result.failed} calendar failed to sync.` : 'Calendars updated.', !result.failed);
+        if (result.state === undefined && result.syncing) say('A calendar sync is already running.');
+        else if (result.failed) say(`${result.failed} calendar failed to sync.`);
+        else if (!doc?.sync?.last_error) say('Calendars updated.', true);
       }
-    } catch (e) { btn.disabled = false; btn.textContent = 'Sync now'; say(e.message); }
+    } catch (e) { say(e.message); }
+    finally { btn.disabled = false; btn.textContent = 'Sync now'; }
   }
 
   async function load(refresh) {
@@ -423,7 +463,7 @@
       const r = await fetch(API + (refresh ? '?refresh=1' : ''), { cache: 'no-store' });
       if (!r.ok) throw new Error(`Load failed (${r.status})`);
       const d = await r.json();
-      if (d.timezone) TZ = d.timezone;
+      TZ = d.display_timezone || browserTZ;
       doc = d;
       if (!sel) sel = todayKey();
       if (!view) view = [+sel.slice(0, 4), +sel.slice(5, 7) - 1];

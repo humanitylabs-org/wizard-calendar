@@ -1,0 +1,16 @@
+name: app-image
+# Publishes the public multi-arch image (linux/amd64 + linux/arm64) tagged sha-<commit>.
+# The shared workflow lives in the Wizard app index; the digest it prints is pinned in
+# runtipi/docker-compose.yml. See spec/WIZARD_MD.md "Packaging" in wizard-os.
+on:
+  push:
+    branches: [release/standard-0.3.0, release/standard-0.3.0-merged]
+  workflow_dispatch: {}
+permissions:
+  contents: read
+  packages: write
+jobs:
+  image:
+    uses: humanitylabs-org/wizard-app-index/.github/workflows/app-image.yml@main
+    with:
+      dockerfile: app/Dockerfile
