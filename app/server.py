@@ -15,7 +15,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
-VERSION = '0.3.0-alpha.1'
+VERSION = '0.3.0'
 ROOT = Path(__file__).resolve().parents[1]
 DATA = Path(os.environ.get('DATA_DIR', './data')).resolve()
 PORT = int(os.environ.get('PORT', '8799'))

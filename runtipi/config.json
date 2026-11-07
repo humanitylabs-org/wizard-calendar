@@ -11,7 +11,7 @@
   ],
   "description": "Alpha test release. Link Google in Connected accounts; see OSCAR-SETUP.md.",
   "tipi_version": 1,
-  "version": "0.3.0-alpha.1",
+  "version": "0.3.0",
   "source": "https://github.com/humanitylabs-org/wizard-calendar",
   "exposable": false,
   "supported_architectures": [

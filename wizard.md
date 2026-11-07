@@ -4,7 +4,7 @@ id: wizard-calendar
 name: Calendar
 type: service
 category: app
-version: 0.3.0-alpha.1
+version: 0.3.0
 summary: Read-only calendar views synced through Connected accounts; bring your own Google OAuth app once.
 license: MIT
 source: https://github.com/humanitylabs-org/wizard-calendar
