@@ -4,7 +4,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends tzdata \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /data && chown 1000:1000 /data
-COPY app/server.py app/prepare_data.py app/
+COPY app/server.py app/ical_feed.py app/prepare_data.py app/
 COPY web web
 COPY openapi.json openapi.json
 ENV BIND=0.0.0.0 PORT=8799 DATA_DIR=/data PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1

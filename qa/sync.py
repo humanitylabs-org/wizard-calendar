@@ -4,6 +4,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import sys
 import tempfile
 import threading
 import unittest
@@ -12,6 +13,7 @@ from http.server import ThreadingHTTPServer
 import fake_connectors as fake
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / 'app'))
 spec = importlib.util.spec_from_file_location('calendar_server', ROOT / 'app/server.py')
 m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
@@ -91,16 +93,16 @@ class SyncTests(unittest.TestCase):
         self.assertEqual(m.read()['events'], before['events'])
 
     def test_legacy_preferences_fail_atomically_and_preserve_unmatched(self):
-        self.grant(); self.sync(); before = (m.DATA / 'snapshot.json').read_bytes()
+        self.grant(); self.sync(); before = (m.DATA / 'state.json').read_bytes()
         cal = m.read()['calendars'][0]
         for body in ({'calendars': [{'id': cal['provider_id'], 'color': '#123456'}, {'id': 'bad', 'color': 'red'}], 'hidden': []},
                      {'calendars': [], 'hidden': [cal['provider_id']]},
                      {'calendars': [{'id': 'a'}, {'id': 'a'}], 'hidden': []}):
             with self.assertRaises(ValueError), m.LOCK: m.import_preferences(body)
-            self.assertEqual((m.DATA / 'snapshot.json').read_bytes(), before)
+            self.assertEqual((m.DATA / 'state.json').read_bytes(), before)
         with m.LOCK: result = m.import_preferences({'calendars': [{'id': 'unmatched'}], 'hidden': []})
         self.assertEqual(result['matched'], 0); self.assertEqual(result['unmatched'], ['unmatched'])
-        self.assertEqual((m.DATA / 'snapshot.json').read_bytes(), before)
+        self.assertEqual((m.DATA / 'state.json').read_bytes(), before)
 
     def test_preferences_exact_local_id_and_other_hidden_preserved(self):
         self.grant(); self.sync(); doc = m.read(); a,b = doc['calendars']
@@ -163,10 +165,10 @@ class SyncTests(unittest.TestCase):
         self.assertEqual(before['syncLastSuccess'], after['syncLastSuccess'])
 
     def test_invalid_rejected_without_corruption(self):
-        self.grant(); self.sync(); before = (m.DATA / 'snapshot.json').read_bytes()
+        self.grant(); self.sync(); before = (m.DATA / 'state.json').read_bytes()
         for mode in ('invalid', 'unsafe'):
             self.assertEqual(self.sync(mode)['state'], 'error')
-            self.assertEqual(before, (m.DATA / 'snapshot.json').read_bytes())
+            self.assertEqual(before, (m.DATA / 'state.json').read_bytes())
 
     def test_truncated_retains_good(self):
         self.grant(); self.sync(); before = m.read()

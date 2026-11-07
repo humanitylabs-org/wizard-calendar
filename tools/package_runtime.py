@@ -30,9 +30,10 @@ compose = {'services': {
     'wizard-calendar': {
         **common, 'user': '1000:1000',
         'depends_on': {'calendar-data-init': {'condition': 'service_completed_successfully'}},
-        'environment': {'BIND': '0.0.0.0', 'PORT': '8799', 'DATA_DIR': '/data',
+        'environment': {'BIND': '0.0.0.0', 'PORT': '8799', 'DATA_DIR': '/data', 'PYTHONDONTWRITEBYTECODE': '1',
             'CALENDAR_TIMEZONE': '${CALENDAR_TIMEZONE:-}',
             'CALENDAR_SYNC_MINUTES': '${CALENDAR_SYNC_MINUTES:-10}',
+            'ICAL_SYNC_INTERVAL': '${ICAL_SYNC_INTERVAL:-900}',
             'CONNECTORS_URL': '${CONNECTORS_URL:-}',
             'WIZARD_GRANTS_FILE': '/wizard/grants.json',
             'WIZARD_TRUSTED_HOSTS': '${WIZARD_TRUSTED_HOSTS:-}',

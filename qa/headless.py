@@ -15,7 +15,8 @@ ROOT = Path(__file__).resolve().parents[1]
 def run(*args):
     subprocess.run([sys.executable, *args], cwd=ROOT, check=True)
 
-for test in ('qa/package.py', 'qa/data_init.py', 'qa/worker.py', 'qa/sync.py', 'qa/connector.py', 'tools/check_view.py'):
+for test in ('qa/package.py', 'qa/data_init.py', 'qa/worker.py', 'qa/sync.py', 'qa/connector.py', 'tools/check_view.py',
+             'qa/ical.py', 'qa/ical_sources.py', 'qa/http_ical.py', 'qa/coexist.py'):
     run(test)
 with tempfile.TemporaryDirectory(prefix='calendar-headless-') as tmp:
     with socket.socket() as sock:

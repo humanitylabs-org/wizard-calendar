@@ -20,31 +20,19 @@
       "get": {
         "summary": "Service identity and setup status",
         "responses": {
-          "200": {
-            "description": "Success"
-          },
-          "400": {
-            "description": "Invalid input"
-          },
-          "403": {
-            "description": "Untrusted Host or Origin"
-          }
+          "200": { "description": "Success" },
+          "400": { "description": "Invalid input" },
+          "403": { "description": "Untrusted Host or Origin" }
         }
       }
     },
     "/api/events": {
       "get": {
-        "summary": "Visible snapshot; no network calls",
+        "summary": "Visible read-only snapshot; no network calls",
         "responses": {
-          "200": {
-            "description": "Success"
-          },
-          "400": {
-            "description": "Invalid input"
-          },
-          "403": {
-            "description": "Untrusted Host or Origin"
-          }
+          "200": { "description": "Success" },
+          "400": { "description": "Invalid input" },
+          "403": { "description": "Untrusted Host or Origin" }
         }
       }
     },
@@ -52,15 +40,9 @@
       "get": {
         "summary": "Complete saved snapshot including hidden calendars",
         "responses": {
-          "200": {
-            "description": "Success"
-          },
-          "400": {
-            "description": "Invalid input"
-          },
-          "403": {
-            "description": "Untrusted Host or Origin"
-          }
+          "200": { "description": "Success" },
+          "400": { "description": "Invalid input" },
+          "403": { "description": "Untrusted Host or Origin" }
         }
       }
     },
@@ -68,15 +50,9 @@
       "post": {
         "summary": "Atomically replace snapshot; see OSCAR-SETUP.md for schema and limits",
         "responses": {
-          "200": {
-            "description": "Success"
-          },
-          "400": {
-            "description": "Invalid input"
-          },
-          "403": {
-            "description": "Untrusted Host or Origin"
-          }
+          "200": { "description": "Success" },
+          "400": { "description": "Invalid input" },
+          "403": { "description": "Untrusted Host or Origin" }
         }
       }
     },
@@ -101,15 +77,70 @@
       "post": {
         "summary": "Set visible boolean for a known calendar id",
         "responses": {
-          "200": {
-            "description": "Success"
-          },
-          "400": {
-            "description": "Invalid input"
-          },
-          "403": {
-            "description": "Untrusted Host or Origin"
+          "200": { "description": "Success" },
+          "400": { "description": "Invalid input" },
+          "403": { "description": "Untrusted Host or Origin" }
+        }
+      }
+    },
+    "/api/sources": {
+      "get": {
+        "summary": "List saved iCal sources without their private URLs",
+        "responses": {
+          "200": { "description": "Redacted source list" },
+          "403": { "description": "Untrusted Host or Origin" }
+        }
+      },
+      "post": {
+        "summary": "Add and immediately fetch a private Google iCal source",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["name", "url"],
+                "additionalProperties": false,
+                "properties": {
+                  "name": { "type": "string", "minLength": 1, "maxLength": 300 },
+                  "url": { "type": "string", "description": "Private https:// or webcal:// calendar.google.com iCal URL" }
+                }
+              }
+            }
           }
+        },
+        "responses": {
+          "200": { "description": "Source saved and its events committed" },
+          "400": { "description": "Invalid link, feed, or input" },
+          "403": { "description": "Untrusted Host or Origin" },
+          "413": { "description": "Request body too large" },
+          "500": { "description": "Storage failure; previous snapshot retained" }
+        }
+      }
+    },
+    "/api/sources/remove": {
+      "post": {
+        "summary": "Remove one iCal source and its imported events",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["id"],
+                "additionalProperties": false,
+                "properties": {
+                  "id": { "type": "string", "minLength": 1, "maxLength": 300 }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Source removed" },
+          "400": { "description": "Unknown source id" },
+          "403": { "description": "Untrusted Host or Origin" },
+          "500": { "description": "Storage failure; previous snapshot retained" }
         }
       }
     },
@@ -139,7 +170,7 @@
         }
       },
       "post": {
-        "summary": "Request asynchronous sync now; poll GET until syncing is false",
+        "summary": "Refresh saved iCal sources now and request an asynchronous Connected accounts sync; poll GET until syncing is false",
         "requestBody": {
           "required": true,
           "content": {
@@ -152,8 +183,14 @@
           }
         },
         "responses": {
+          "200": {
+            "description": "Only iCal sources are configured: refresh completed (ok, synced, failed) or coalesced with a running refresh (syncing true)"
+          },
           "202": {
-            "description": "Queued or coalesced with pending refresh"
+            "description": "Connected accounts refresh queued or coalesced with a pending refresh; saved iCal sources were refreshed before the reply"
+          },
+          "400": {
+            "description": "Invalid input"
           },
           "403": {
             "description": "Untrusted Host or Origin"
@@ -165,15 +202,9 @@
       "get": {
         "summary": "Service identity and setup status",
         "responses": {
-          "200": {
-            "description": "Success"
-          },
-          "400": {
-            "description": "Invalid input"
-          },
-          "403": {
-            "description": "Untrusted Host or Origin"
-          }
+          "200": { "description": "Success" },
+          "400": { "description": "Invalid input" },
+          "403": { "description": "Untrusted Host or Origin" }
         }
       }
     }

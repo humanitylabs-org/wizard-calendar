@@ -50,6 +50,8 @@ dockerfile = (ROOT / 'app/Dockerfile').read_text()
 assert 'FROM python:3.12-slim-bookworm' in dockerfile
 assert 'USER 1000:1000' in dockerfile and 'HEALTHCHECK ' in dockerfile
 assert '!app/prepare_data.py' in (ROOT / '.dockerignore').read_text()
+# server.py imports ical_feed: the image must ship it (a missing module only shows at container start).
+assert '!app/ical_feed.py' in (ROOT / '.dockerignore').read_text() and 'app/ical_feed.py' in dockerfile
 subprocess.run([sys.executable, 'tools/package_runtime.py', '--check'], cwd=ROOT, check=True)
 print('PASS portable image, optional defaults, Connected accounts declaration and hardened recipe')
 # Scan tracked source/doc/tests; .git and generated receipts are not app payload.

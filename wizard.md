@@ -2,10 +2,10 @@
 wizard: 0.2
 id: wizard-calendar
 name: Calendar
-type: service
+type: view
 category: app
 version: 0.3.0
-summary: Read-only calendar views synced through Connected accounts; bring your own Google OAuth app once.
+summary: Read-only calendar views from private Google iCal links and Connected accounts, plus snapshot import.
 license: MIT
 source: https://github.com/humanitylabs-org/wizard-calendar
 runtime:
@@ -39,8 +39,10 @@ health: /healthz
 # Calendar
 
 Empty by default. No provider credentials or account configuration are included.
-API and MCP read a local snapshot; provider authorization happens outside this app.
-See OSCAR-SETUP.md for Connected accounts setup, grant routing and the manual snapshot contract.
+Owners add a private Google iCal link in Settings (stored locally, refreshed as a read-only
+snapshot) and/or link Google in Connected accounts for grant-scoped sync; Calendar never
+writes provider events. The API and MCP expose only the redacted visible state. See
+OSCAR-SETUP.md for privacy, Connected accounts setup, grant routing and the snapshot contract.
 The Wizard gateway must serve its approved shared app-client.js resource. A standalone
 install uses tools/run_portable.py with the already-pulled image.
 The default gateway path is /wizard-calendar/ (the server accepts this prefix and /).
