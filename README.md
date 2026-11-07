@@ -1,4 +1,4 @@
-# Calendar — Alpha test release 0.3.0-alpha.1
+# Calendar 0.3.0
 
 Day, Week and Month views, synced in-app through **Connected accounts**. Fresh installs
 start with **Connect your Google calendar**: bring your own Google OAuth app once in
@@ -26,14 +26,15 @@ the next successful connected sync replaces manual data.
 Live parity details, QA and the coordinated provider prerequisite for notes/Meet/guest
 counts are in [PARITY.md](PARITY.md). A lexical parity PASS alone does not authorize cutover.
 
-## Alpha image install
+## Image install
 
-The Store recipe uses the fixed **`wizard-calendar:0.3.0-alpha.1`** image with
-`pull_policy: never`. The Alpha installer must verify and load the matching native
-image archive before starting the recipe. No source checkout is mounted at `/app`.
-See [ALPHA-RELEASE.md](ALPHA-RELEASE.md) for the prepared worker runner and release gates.
+The Store recipe pulls the public multi-arch (amd64 + arm64) image
+`ghcr.io/humanitylabs-org/wizard-calendar`, pinned by tag and digest in
+`runtipi/docker-compose.yml`. It is built from this repo by
+`.github/workflows/app-image.yml`. No source checkout is mounted at `/app`.
+See [RELEASE.md](RELEASE.md) for the package contract and release checks.
 
-For a disposable standalone test after loading the image, run:
+For a disposable standalone test after pulling the image, run:
 
 ```sh
 python3 tools/run_portable.py start
@@ -112,7 +113,7 @@ WAM injects `${APP_DATA_DIR}/wizard:/wizard:ro` and
 `WIZARD_GRANTS_FILE=/wizard/grants.json`; no hand-written bridge is required.
 `uses: [connected-accounts]` declares the exact provider app id. Its endpoint takes
 precedence over `CONNECTORS_URL`. Old `wizard-connectors` and `slot:calendar-source`
-grants remain readable, but are not extra default grants. See ALPHA-RELEASE.md for
+grants remain readable, but are not extra default grants. See RELEASE.md for
 fresh-install grant creation, owner consent, and sensitive/disconnected cases.
 
 The read-only live-copy comparison found Day/Week/Month, Today, gear, palette and shared
@@ -134,5 +135,5 @@ pinned shared services/Appearance implementations in a labelled test registry/if
 It is not the full production shell, native iPhone/Android or live Google onboarding proof.
 Node QA needs the pinned dependency in `qa/package.json`, Google Chrome and writable
 external-disk scratch. `python3 qa/headless.py` is the fast stdlib-only suite.
-`qa/container_release.py` delegates to the native-architecture Alpha runner. Neither
+`qa/container_release.py` delegates to the native-architecture release runner. Neither
 container nor browser QA was run for this source-preparation change.

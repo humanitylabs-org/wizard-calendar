@@ -36,12 +36,12 @@ needs: []
 health: /healthz
 ---
 
-# Calendar — private test release
+# Calendar
 
 Empty by default. No provider credentials or account configuration are included.
 API and MCP read a local snapshot; provider authorization happens outside this app.
 See OSCAR-SETUP.md for Connected accounts setup, grant routing and the manual snapshot contract.
 The Wizard gateway must serve its approved shared app-client.js resource. A standalone
-install uses tools/run_portable.py with the preloaded Alpha image.
+install uses tools/run_portable.py with the already-pulled image.
 The default gateway path is /wizard-calendar/ (the server accepts this prefix and /).
-See ALPHA-RELEASE.md for image packaging, grant policy and verification boundaries.
+See RELEASE.md for image packaging, grant policy and verification boundaries.

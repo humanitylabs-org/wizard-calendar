@@ -96,7 +96,7 @@ def compose_tests():
     recipe = json.loads((ROOT / 'runtipi/docker-compose.yml').read_text())
     assert all('/wizard' not in v for v in recipe['services']['wizard-calendar']['volumes']), 'Grants mount belongs to WAM'
     image = recipe['services']['wizard-calendar']['image']
-    run(['docker', 'image', 'inspect', image])  # Preload the approved native Alpha image first.
+    run(['docker', 'image', 'inspect', image])  # Pull the published image first.
     names = {key: project + '_' + key for key in ('data', 'source', 'core', 'grants')}
     volumes = [{'type': 'volume', 'source': key, 'target': target, 'read_only': key != 'data'} for key, target in [('data', '/data'), ('core', '/core'), ('grants', '/wizard')]]
     override = {'services': {
@@ -130,7 +130,7 @@ def compose_tests():
         status = request(base, '/api/sync')[1]
         doc = request(base, '/api/export')[1]
         assert len(doc['events']) == 3 and len(doc['calendars']) == 2 and len(status['accounts']) == 2
-        checks.append('actual Runtipi Alpha image recipe + fake provider on same Compose network; multi-account sync and dedupe')
+        checks.append('actual Runtipi image recipe + fake provider on same Compose network; multi-account sync and dedupe')
         calls = request(fake, '/__qa/calls')[1]
         assert calls and all(c['grant_valid'] for c in calls)
         assert any(c['path'].endswith('/events') for c in calls)

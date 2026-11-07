@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run a preloaded Alpha image locally; never build, pull or deploy a store app."""
+"""Run an already-pulled image locally; never build, pull or deploy a store app."""
 import argparse
 import json
 import os

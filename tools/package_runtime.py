@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the portable image recipe; builds happen only on release workers."""
+"""Generate the digest-pinned image recipe; the image is built by .github/workflows/app-image.yml."""
 import json
 from pathlib import Path
 import re
@@ -9,8 +9,12 @@ root = Path(__file__).resolve().parents[1]
 match = re.search(r'^version: (\S+)$', (root / 'wizard.md').read_text(), re.M)
 assert match, 'wizard.md version missing'
 version = match[1]
+# Published by .github/workflows/app-image.yml (multi-arch index, public on GHCR); update both
+# the commit tag and the digest together when the image is rebuilt.
+IMAGE = ('ghcr.io/humanitylabs-org/wizard-calendar:sha-%s@%s'
+         % ('2000387fafd939091688f783022bdb48b4be82b4', 'sha256:c9b5bfd45a57cb01206ff7ae67f9c009ba0dc12c69a7df503f0648a976c523e9'))
 common = {
-    'image': f'wizard-calendar:{version}', 'pull_policy': 'never',
+    'image': IMAGE,
     'cap_drop': ['ALL'], 'security_opt': ['no-new-privileges:true'],
     'mem_limit': '256m', 'tmpfs': ['/tmp:rw,noexec,nosuid,size=16m'], 'read_only': True,
     'volumes': ['${APP_DATA_DIR}/data:/data'],

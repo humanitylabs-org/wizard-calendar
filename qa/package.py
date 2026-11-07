@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline Alpha recipe/version/security regression checks (stdlib only)."""
+"""Offline recipe/version/security regression checks (stdlib only)."""
 import ast
 import json
 from pathlib import Path
@@ -14,10 +14,11 @@ assert match, 'wizard.md version missing'
 version = match[1]
 config = json.loads((ROOT / 'runtipi/config.json').read_text())
 recipe = json.loads((ROOT / 'runtipi/docker-compose.yml').read_text())
-image = f'wizard-calendar:{version}'
+pin = re.compile(r'^ghcr\.io/humanitylabs-org/wizard-calendar:sha-[0-9a-f]{40}@sha256:[0-9a-f]{64}$')
 assert config['version'] == version
-assert all(s['image'] == image for s in recipe['services'].values())
-assert f'image: {image}\n' in (ROOT / 'compose.yml').read_text()
+images = {s['image'] for s in recipe['services'].values()}
+assert len(images) == 1 and pin.match(images.copy().pop()), images
+assert f'image: wizard-calendar:{version}\n' in (ROOT / 'compose.yml').read_text()  # developer build only
 constants = {n.targets[0].id: ast.literal_eval(n.value) for n in ast.parse((ROOT / 'app/server.py').read_text()).body
              if isinstance(n, ast.Assign) and isinstance(n.targets[0], ast.Name) and n.targets[0].id == 'VERSION'}
 assert constants['VERSION'] == version
@@ -32,7 +33,7 @@ assert '/wizard-calendar/' in manifest
 assert all(f['required'] is False and 'default' in f for f in config['form_fields'])
 print(f'PASS versions agree: wizard.md/config/compose/server/OpenAPI/client = {version}')
 for name, service in recipe['services'].items():
-    assert service['pull_policy'] == 'never'
+    assert 'pull_policy' not in service
     assert service['cap_drop'] == ['ALL'] and service['read_only'] is True
     assert service['security_opt'] == ['no-new-privileges:true']
     assert service['tmpfs'] and service['volumes'] == ['${APP_DATA_DIR}/data:/data']

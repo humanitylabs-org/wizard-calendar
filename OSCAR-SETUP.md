@@ -8,7 +8,7 @@ only in **Connected accounts** (`connected-accounts`, formerly `wizard-connector
    connection automatically once both apps are installed. Approve it in App Manager →
    Connections only if pending (sensitive provider) or explicitly reconnect it after a
    denial. Older proposal-based installs may ask for approval. A missing/revoked grant
-   makes no provider calls. See ALPHA-RELEASE.md for source evidence.
+   makes no provider calls. See RELEASE.md for source evidence.
 3. Open Calendar → **Open Connected accounts**. Add your own Google OAuth app there
    once, following that app's redirect/consent instructions. Never paste credentials,
    OAuth callbacks or verification codes into agent chat or Calendar.

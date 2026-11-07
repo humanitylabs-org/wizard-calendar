@@ -1,10 +1,15 @@
-# Calendar Alpha preparation — 0.3.0-alpha.1
+# Calendar 0.3.0 — release note
 
 ## Package contract
 
-- `runtime.package: image`; both services use **wizard-calendar:0.3.0-alpha.1**,
-  `pull_policy: never`. WAM must load the verified architecture-specific archive
-  before Compose starts. There is no `/app` source bind or unpublished registry pull.
+- `runtime.package: image`; both services use the public multi-arch (linux/amd64 +
+  linux/arm64) image **`ghcr.io/humanitylabs-org/wizard-calendar:sha-<commit>@sha256:<digest>`**,
+  pinned by digest and built from this repo by `.github/workflows/app-image.yml`
+  (the shared `wizard-app-index` workflow, native runners). The image carries
+  `org.opencontainers.image.revision=<commit>`. There is no `/app` source bind,
+  `build:` or `pull_policy: never`. After changing `app/`, `web/` or `openapi.json`,
+  rebuild the image, then update `IMAGE` in `tools/package_runtime.py` and regenerate
+  `runtipi/docker-compose.yml` with it.
 - `app/Dockerfile`: Python 3.12 slim Bookworm, explicit tzdata, baked app/web/OpenAPI,
   default user **1000:1000**, HTTP `/healthz` healthcheck. No provider credentials.
 - Managed state: **`${APP_DATA_DIR}/data:/data`**. A fresh Docker bind is root-owned:
@@ -70,7 +75,7 @@ The local installed provider recipe (read-only reference) confirms
 as a Calendar default. Provider-supplied `setup_url` remains authoritative; the
 legacy `/wizard-connectors/` fallback is intentionally retained for its gateway alias.
 
-## Prepared worker runner (not executed for this change)
+## Local release runner (optional smoke test)
 
 Canonical source: `tools/alpha_runner.py`; `qa/container_release.py` delegates to it.
 Stage a clean committed checkout as cwd and set **ARCH=amd64|arm64** and optional
@@ -100,12 +105,11 @@ HTTP API tests, sync fake-provider tests, connector adapter fixtures, same-host
 Origin defaults, and view-source presence. Everything uses disposable local state;
 no browser, running app, owner data, OAuth service, or Docker is touched.
 
-Version agreement is enforced across wizard.md, Runtipi config, generated Compose,
-developer Compose image, server VERSION, OpenAPI, and shared-client ready metadata.
+Version agreement is enforced across wizard.md, Runtipi config, the developer Compose
+image name, server VERSION, OpenAPI, and shared-client ready metadata.
 The owner-specific text scan permits only reserved synthetic example email domains.
 
-**Still gated:** real native amd64/arm64 builds and image smoke/export, Alpha catalog
-asset publication/activation, fresh-box Store install with actual WAM, two-skin
-browser regression, and owner Google consent. None ran in this source-preparation
-change. The existing provider-field parity prerequisite in PARITY.md remains;
+**Not covered by the release checks:** the local runner's container smoke, a fresh-box
+Store install with actual WAM, two-skin browser regression, and owner Google consent.
+None ran in this release-preparation change. The existing provider-field parity prerequisite in PARITY.md remains;
 headless synthetic-provider success is not proof of live Google field completeness.

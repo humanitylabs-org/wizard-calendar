@@ -1,8 +1,7 @@
 {
   "services": {
     "calendar-data-init": {
-      "image": "wizard-calendar:0.3.0",
-      "pull_policy": "never",
+      "image": "ghcr.io/humanitylabs-org/wizard-calendar:sha-2000387fafd939091688f783022bdb48b4be82b4@sha256:c9b5bfd45a57cb01206ff7ae67f9c009ba0dc12c69a7df503f0648a976c523e9",
       "cap_drop": [
         "ALL"
       ],
@@ -32,8 +31,7 @@
       }
     },
     "wizard-calendar": {
-      "image": "wizard-calendar:0.3.0",
-      "pull_policy": "never",
+      "image": "ghcr.io/humanitylabs-org/wizard-calendar:sha-2000387fafd939091688f783022bdb48b4be82b4@sha256:c9b5bfd45a57cb01206ff7ae67f9c009ba0dc12c69a7df503f0648a976c523e9",
       "cap_drop": [
         "ALL"
       ],

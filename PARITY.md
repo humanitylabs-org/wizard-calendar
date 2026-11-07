@@ -1,6 +1,6 @@
 # Live Calendar parity audit
 
-## Current image Alpha baseline
+## Current image baseline
 
 The current release review compares exact tracked source at the supplied serving revision
 `e9832184b9435d4fe67d15fe7bcee083ab65cf4c` against this branch, not an older gog branch
@@ -64,4 +64,4 @@ On disposable Thales checkout with Colima running and scratch/mounts under `~/.c
 python3 qa/thales_sync.py
 ```
 
-After preloading the approved native Alpha image, this runs unit/connector/API, standalone browser, desktop+phone pinned shared host, setup-card, all three ported legacy suites and actual image-recipe Compose/provider tests. `qa/container_release.py` now delegates to the native-only Alpha runner; see ALPHA-RELEASE.md. Container/browser acceptance was not executed during Alpha source preparation.
+After pulling the published image, this runs unit/connector/API, standalone browser, desktop+phone pinned shared host, setup-card, all three ported legacy suites and actual image-recipe Compose/provider tests. `qa/container_release.py` now delegates to the native-only release runner; see RELEASE.md. Container/browser acceptance was not executed during source preparation.
