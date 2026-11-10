@@ -47,6 +47,33 @@ ICAL_SYNC_INTERVAL = max(0, int(os.environ.get('ICAL_SYNC_INTERVAL', '900')))
 MAX_BYTES = 4 * 1024 * 1024
 MAX_SOURCES = 20
 WEB = {'index.html', 'app.js', 'app.css', 'icon.svg', 'wizard-appearance.js'}
+# Owner feature switches (wizard.app-switches/1, wizardos-tracker docs/app-switches.md). Off by default;
+# the state lives on the box in DATA/switches.json so the app, the Tracker card and the agent see one state.
+SWITCHES = [
+    {'id': 'compact-header', 'name': 'Compact top bar',
+     'description': 'Slimmer header: date, navigation, view switcher and buttons share one row, so the time grid shows more hours.',
+     'default': False, 'issues': ['humanitylabs-org/wizard-calendar#20']},
+]
+
+
+def _saved_switches():
+    try: saved = _read_json(DATA / 'switches.json', {})
+    except (OSError, ValueError): saved = {}  # unreadable state falls back to the defaults (off)
+    return saved if isinstance(saved, dict) else {}
+
+
+def switches_doc():
+    saved = _saved_switches()
+    return {'contract': 'wizard.app-switches/1', 'switches': [
+        dict(s, on=saved[s['id']] if isinstance(saved.get(s['id']), bool) else s['default']) for s in SWITCHES]}
+
+
+def set_switch(switch_id, on):
+    with LOCK:
+        saved = {k: v for k, v in _saved_switches().items() if k in {s['id'] for s in SWITCHES} and isinstance(v, bool)}
+        saved[switch_id] = on
+        _save_path(DATA / 'switches.json', saved)
+    return switches_doc()
 
 
 def empty():
@@ -735,7 +762,7 @@ class Handler(BaseHTTPRequestHandler):
         if path in ('/api/connect/start', '/api/connect/finish'): return self.superseded_connect()
         if path.rstrip('/') == '/api':
             return self.respond({'app': 'wizard-calendar', 'openapi_url': '/wizard-calendar/openapi.json',
-                'routes': ['/api/events', '/api/health', '/api/sync', '/api/import', '/api/export', '/api/preferences/import', '/api/calendars/visibility', '/api/sources', '/api/sources/remove'],
+                'routes': ['/api/events', '/api/health', '/api/sync', '/api/import', '/api/export', '/api/preferences/import', '/api/calendars/visibility', '/api/sources', '/api/sources/remove', '/api/switches'],
                 'superseded': {'/api/connect/start': '/connected-accounts/', '/api/connect/finish': '/connected-accounts/'}})
         if path in ('/healthz', '/api/health'):
             try: source_count = len(ical_sources_public())
@@ -744,6 +771,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.respond({'ok': True, 'app': 'wizard-calendar', 'version': VERSION, 'mode': view_mode(doc, source_count),
                 'configured': bool(source_count or doc['calendars']), 'sources': source_count, 'sync': sync_status()})
         if path == '/api/sync': return self.respond(sync_status())
+        if path == '/api/switches': return self.respond(switches_doc())
         if path == '/api/events': return self.respond(view())
         if path == '/api/export': return self.respond(read())
         if path == '/api/sources': return self.respond({'sources': ical_sources_public()})
@@ -760,6 +788,7 @@ class Handler(BaseHTTPRequestHandler):
         if not self.trusted(): return
         path = self.route()
         if path in ('/api/connect/start', '/api/connect/finish'): return self.superseded_connect()
+        if path == '/api/switches': return self.post_switch()
         if path not in ('/api/import', '/api/preferences/import', '/api/calendars/visibility', '/api/sources', '/api/sources/remove', '/api/sync', '/mcp'):
             return self.respond({'error': 'not_found'}, 404)
         try:
@@ -790,6 +819,22 @@ class Handler(BaseHTTPRequestHandler):
             return self.respond({'error': str(exc)[:300]}, 400)
         except OSError:
             return self.respond({'error': 'storage_failure; previous snapshot retained'}, 500)
+
+    def post_switch(self):
+        if self.headers.get('X-Wizard-Switch') != '1' or not self.headers.get('Origin'):
+            return self.respond({'error': 'owner_browser_request_required'}, 403)
+        try:
+            if (self.headers.get('Content-Type') or '').split(';')[0].strip() != 'application/json': raise ValueError('json body required')
+            size = int(self.headers.get('Content-Length', '0'))
+            if size <= 0 or size > 4096: raise ValueError('body size')
+            body = json.loads(self.rfile.read(size))
+            if not isinstance(body, dict) or not isinstance(body.get('id'), str) or not isinstance(body.get('on'), bool):
+                raise ValueError('string id and boolean on are required')
+        except (ValueError, TypeError):
+            return self.respond({'error': 'bad_request: string id and boolean on are required'}, 400)
+        if body['id'] not in {s['id'] for s in SWITCHES}: return self.respond({'error': 'unknown_switch'}, 404)
+        try: return self.respond(set_switch(body['id'], body['on']))
+        except OSError: return self.respond({'error': 'storage_failure'}, 500)
 
     def mcp(self, request):
         method, request_id = request.get('method'), request.get('id')

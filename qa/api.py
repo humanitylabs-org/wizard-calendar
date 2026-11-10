@@ -95,4 +95,22 @@ check('preferences drops legacy account field', 'account' not in after_prefs)
 bad = copy.deepcopy(prefs); bad['calendars'][1]['color'] = 'red'
 check('preferences rejects invalid atomically', request('/api/preferences/import', bad)[0] == 400 and request('/api/export')[1] == after_prefs)
 check('preferences repeat is idempotent', request('/api/preferences/import', prefs)[0] == 200 and request('/api/export')[1] == after_prefs)
+# Owner feature switches (wizard.app-switches/1): off by default, kept on the box, owner browser requests only.
+own = {'Origin': args.url, 'X-Wizard-Switch': '1'}
+for prefix in ('', '/wizard-calendar'):
+    status, listing = request(prefix + '/api/switches')
+    compact = next((x for x in listing.get('switches', []) if x['id'] == 'compact-header'), None)
+    check('switches listing ' + prefix, status == 200 and listing['contract'] == 'wizard.app-switches/1' and compact
+          and compact['on'] is False and compact['default'] is False and 'humanitylabs-org/wizard-calendar#20' in compact['issues'])
+check('switch needs X-Wizard-Switch header', request('/api/switches', {'id': 'compact-header', 'on': True}, {'Origin': args.url})[0] == 403)
+check('switch needs a browser Origin', request('/api/switches', {'id': 'compact-header', 'on': True}, {'X-Wizard-Switch': '1'})[0] == 403)
+check('switch rejects untrusted origin', request('/api/switches', {'id': 'compact-header', 'on': True}, {'Origin': 'https://untrusted.invalid', 'X-Wizard-Switch': '1'})[0] == 403)
+check('switch unknown id 404', request('/api/switches', {'id': 'nope', 'on': True}, own)[0] == 404)
+check('switch bad body 400', request('/api/switches', {'id': 'compact-header', 'on': 'yes'}, own)[0] == 400)
+check('switch still off after refusals', request('/api/switches')[1]['switches'][0]['on'] is False)
+status, flipped = request('/wizard-calendar/api/switches', {'id': 'compact-header', 'on': True}, own)
+check('switch on returns listing', status == 200 and flipped['switches'][0]['on'] is True)
+check('switch on reads back', request('/api/switches')[1]['switches'][0]['on'] is True)
+check('switch off reads back', request('/api/switches', {'id': 'compact-header', 'on': False}, own)[0] == 200 and request('/api/switches')[1]['switches'][0]['on'] is False)
+check('API index lists switches', '/api/switches' in request('/api')[1]['routes'])
 print(json.dumps({'ok': True, 'checks': results, 'count': len(results), 'contentSha256': first['contentSha256']}, indent=2))

@@ -160,6 +160,10 @@
         }
       }
     },
+    "/api/switches": {
+      "get": {"summary": "Read the owner's Calendar feature switches (contract wizard.app-switches/1); every switch is off by default", "responses": {"200": {"description": "{contract, switches: [{id, name, description, on, default, issues}]}"}, "403": {"description": "Untrusted Host or Origin"}}},
+      "post": {"summary": "Turn one feature switch on or off for the owner (browser request: Origin and X-Wizard-Switch: 1 required)", "parameters": [{"name": "X-Wizard-Switch", "in": "header", "required": true, "schema": {"type": "string", "enum": ["1"]}}], "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "required": ["id", "on"], "properties": {"id": {"type": "string"}, "on": {"type": "boolean"}}}}}}, "responses": {"200": {"description": "The same listing as GET"}, "400": {"description": "Invalid body"}, "403": {"description": "Untrusted Host or Origin, or not an owner browser request"}, "404": {"description": "Unknown switch id"}}}
+    },
     "/api/sync": {
       "get": {
         "summary": "Read grant-scoped Connected accounts sync state",
