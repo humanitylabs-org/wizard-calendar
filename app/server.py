@@ -53,6 +53,9 @@ SWITCHES = [
     {'id': 'compact-header', 'name': 'Compact top bar',
      'description': 'Slimmer header: date, navigation, view switcher and buttons share one row, so the time grid shows more hours.',
      'default': False, 'issues': ['humanitylabs-org/wizard-calendar#20']},
+    {'id': 'trackpad-swipe', 'name': 'Trackpad day swipe',
+     'description': 'In Day and Week, a two-finger sideways swipe (or Shift + mouse wheel) glides the calendar and settles one day at a time, like Mac Calendar.',
+     'default': False, 'issues': ['humanitylabs-org/wizard-calendar#21']},
 ]
 
 

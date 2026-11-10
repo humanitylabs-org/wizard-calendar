@@ -112,5 +112,7 @@ status, flipped = request('/wizard-calendar/api/switches', {'id': 'compact-heade
 check('switch on returns listing', status == 200 and flipped['switches'][0]['on'] is True)
 check('switch on reads back', request('/api/switches')[1]['switches'][0]['on'] is True)
 check('switch off reads back', request('/api/switches', {'id': 'compact-header', 'on': False}, own)[0] == 200 and request('/api/switches')[1]['switches'][0]['on'] is False)
+swipe = next((x for x in request('/api/switches')[1]['switches'] if x['id'] == 'trackpad-swipe'), None)
+check('trackpad swipe switch listed off', swipe and swipe['on'] is False and swipe['default'] is False and 'humanitylabs-org/wizard-calendar#21' in swipe['issues'])
 check('API index lists switches', '/api/switches' in request('/api')[1]['routes'])
 print(json.dumps({'ok': True, 'checks': results, 'count': len(results), 'contentSha256': first['contentSha256']}, indent=2))

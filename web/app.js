@@ -149,17 +149,29 @@
     return bars;
   }
 
+  // Trackpad day swipe (switch trackpad-swipe, issue 21): Week becomes a sliding 7-day window that can start on any day,
+  // and Day/Week render `buf` extra days each side so the grid can follow the fingers with the next days already drawn.
+  let wkStart = null, pan = null;
+  const swipeOn = () => switchOn('trackpad-swipe');
+  const windowStart = () => mode === 'week' ? (swipeOn() && wkStart ? wkStart : weekStart(sel)) : sel;
+  const panBuf = () => swipeOn() ? (mode === 'week' ? 7 : 3) : 0;
+
   function renderTime() {
-    const tk = todayKey(), now = Date.now(), ws = weekStart(sel);
+    const tk = todayKey(), now = Date.now(), ws = weekStart(sel), start = windowStart();
     const strip = [...Array(7)].map((_, i) => addDays(ws, i));
-    const days = mode === 'week' ? strip : [sel];
-    const n = days.length, tg = $('[data-time]');
+    const days = mode === 'week' ? [...Array(7)].map((_, i) => addDays(start, i)) : [sel];
+    const n = days.length, tg = $('[data-time]'), buf = panBuf();
+    const span = buf ? [...Array(n + 2 * buf)].map((_, i) => addDays(days[0], i - buf)) : days;
+    const track = (html) => buf ? `<div class="pan">${html}</div>` : html;
     tg.classList.toggle('is-day', mode === 'day');
+    tg.classList.toggle('is-pan', !!buf);
     tg.style.setProperty('--n', n);
+    tg.style.setProperty('--tn', span.length);
+    tg.style.setProperty('--buf', buf);
 
     // Title
     if (mode === 'week') {
-      const a = civil(strip[0]), b = civil(strip[6]);
+      const a = civil(days[0]), b = civil(days[6]);
       const mo = (c, y) => new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', month: y ? 'long' : 'short', ...(y ? { year: 'numeric' } : {}) }).format(c);
       $('[data-month]').textContent = a.getUTCMonth() === b.getUTCMonth() ? mo(a, 1)
         : `${mo(a)} – ${mo(b)} ${b.getUTCFullYear()}`;
@@ -168,22 +180,24 @@
     }
 
     // Day heads: Week → tap opens that day; Day → week strip to hop between days.
-    $('[data-heads]').innerHTML = strip.map((k) => {
+    const headDays = mode === 'week' ? span : strip;
+    $('[data-heads]').innerHTML = track(headDays.map((k) => {
       const c = civil(k), evs = (byDay.get(k) || []).length;
       const cls = ['dhd', k === tk && 'today', mode === 'day' && k === sel && 'sel', k < tk && 'past', [0, 6].includes(c.getUTCDay()) && 'wkend'].filter(Boolean).join(' ');
       return `<button class="${cls}" data-dayview="${k}" aria-label="${fmtC(k, { weekday: 'long', day: 'numeric', month: 'long' })}, ${evs} events"><span class="w">${fmtC(k, { weekday: 'short' })}</span><span class="n">${c.getUTCDate()}</span></button>`;
-    }).join('');
+    }).join(''));
+    $('[data-heads]').classList.toggle('is-strip', mode !== 'week');
 
     // All-day row
-    const bars = allDayLanes(days);
+    const bars = allDayLanes(span);
     $('[data-allrow]').hidden = !bars.length;
-    $('[data-lanes]').innerHTML = bars.map(({ e, s, en, lane, cutL, cutR }) =>
-      `<button class="ad${cutL ? ' cut-l' : ''}${cutR ? ' cut-r' : ''}" data-ev="${esc(e.id)}" style="--c:${esc(e.color)};grid-column:${s + 1} / ${en + 2};grid-row:${lane + 1}">${esc(e.title)}</button>`).join('');
+    $('[data-lanes]').innerHTML = track(bars.map(({ e, s, en, lane, cutL, cutR }) =>
+      `<button class="ad${cutL ? ' cut-l' : ''}${cutR ? ' cut-r' : ''}" data-ev="${esc(e.id)}" style="--c:${esc(e.color)};grid-column:${s + 1} / ${en + 2};grid-row:${lane + 1}">${esc(e.title)}</button>`).join(''));
 
     // Hours + columns
     let hours = '';
     for (let h = 1; h < 24; h++) hours += `<span style="top:${h * HOUR}px">${String(h).padStart(2, '0')}:00</span>`;
-    const cols = days.map((k) => {
+    const cols = span.map((k) => {
       const blocks = layoutDay(k).map(({ e, s, en, col, n: nc }) => {
         const top = s / 60 * HOUR, h = Math.max((en - s) / 60 * HOUR, 18);
         const past = new Date(e.end).getTime() < now;
@@ -195,7 +209,7 @@
       const nowLine = k === tk ? `<i class="now" style="top:${nowMins() / 60 * HOUR}px"></i>` : '';
       return `<div class="col${k === tk ? ' today' : ''}" data-col="${k}">${blocks}${nowLine}</div>`;
     }).join('');
-    $('[data-tin]').innerHTML = `<div class="tg-hrs">${hours}</div><div class="tg-cols">${cols}</div>`;
+    $('[data-tin]').innerHTML = `<div class="tg-hrs">${hours}</div><div class="tg-cols">${track(cols)}</div>`;
 
     if (needScroll) {
       needScroll = false;
@@ -221,6 +235,7 @@
 
   function setMode(m) {
     if (!MODES.includes(m)) return;
+    wkStart = null; // a new view starts from the Monday-first week again
     mode = m; localStorage.setItem('wc.mode', m); needScroll = true;
     if (m === 'month' && sel) view = [+sel.slice(0, 4), +sel.slice(5, 7) - 1];
     applyMode(); render();
@@ -237,7 +252,7 @@
   }
   function renderTodayBtn() { $('[data-today-num]').textContent = +todayKey().slice(8); }
   function goToday() {
-    sel = todayKey(); needScroll = true;
+    sel = todayKey(); wkStart = null; needScroll = true;
     if (mode === 'month') { view = [+sel.slice(0, 4), +sel.slice(5, 7) - 1]; $('[data-scroll]').scrollTo({ top: 0, behavior: 'smooth' }); renderView(); }
     else renderTime();
   }
@@ -436,6 +451,7 @@
     if (mode !== 'month' && t.matches('[data-prev], [data-next-month]')) {
       const dir = t.matches('[data-prev]') ? -1 : 1, tk = todayKey();
       sel = addDays(sel, dir * (mode === 'week' ? 7 : 1));
+      if (wkStart) wkStart = addDays(wkStart, dir * (mode === 'week' ? 7 : 1));
       if (mode === 'week' && weekStart(sel) === weekStart(tk)) sel = tk;
       needScroll = true; return renderTime();
     }
@@ -473,6 +489,64 @@
     const dx = e.changedTouches[0].clientX - tx, dy = e.changedTouches[0].clientY - ty; tx = null;
     if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) $(dx < 0 ? '[data-next-month]' : '[data-prev]').click();
   }, { passive: true });
+
+  // Trackpad day swipe (switch trackpad-swipe, issue 21). Sideways wheel deltas (two-finger swipe, or Shift + wheel)
+  // move the Day/Week grid with the fingers; when the gesture goes quiet it settles on the nearest day. Mostly vertical
+  // wheels are left alone so the hours still scroll. Reduced motion: no following, just jump by the swiped days.
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+  const PAN_IDLE = 140;
+  let vUntil = 0;
+  const tgEl = $('[data-time]');
+  const panStep = () => ($('.tg-cols')?.clientWidth || 1) / (mode === 'week' ? 7 : 1);
+  const setDx = (px) => tgEl.style.setProperty('--dx', `${px}px`);
+  function shiftDays(k) {
+    if (!k) return;
+    if (mode === 'week') wkStart = addDays(windowStart(), k);
+    sel = addDays(sel, k);
+    renderTime();
+  }
+  function settle() {
+    if (!pan) return;
+    clearTimeout(pan.timer);
+    const step = panStep(), q = -pan.dx / step;
+    // Snap to the nearest day; a deliberate nudge (a third of a day) already counts as one.
+    const k = Math.sign(q) * Math.floor(Math.abs(q) + 0.67);
+    if (reducedMotion.matches || pan.snapping) { finish(k); return; }
+    pan.snapping = true; pan.k = k;
+    tgEl.classList.add('is-snap'); setDx(-k * step);
+    pan.timer = setTimeout(() => finish(k), 230);
+  }
+  function finish(k) {
+    if (!pan) return;
+    clearTimeout(pan.timer); pan = null;
+    tgEl.classList.remove('is-snap', 'is-panning'); setDx(0);
+    shiftDays(k);
+  }
+  tgEl.addEventListener('wheel', (e) => {
+    if (!swipeOn() || mode === 'month' || tgEl.hidden || sheetOpen) return;
+    const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? tgEl.clientWidth : 1;
+    let x = e.deltaX * unit, y = e.deltaY * unit;
+    if (e.shiftKey && !x) { x = y; y = 0; }
+    const t = performance.now();
+    if (pan?.snapping) finish(pan.k); // a new gesture during the settle: land first, then start again
+    if (!pan) {
+      // A vertical scroll keeps its axis until it goes quiet, so drifting fingers never page the calendar.
+      if (t < vUntil || Math.abs(x) <= Math.abs(y) * 1.2 || Math.abs(x) < 1) { vUntil = t + PAN_IDLE; return; }
+      pan = { dx: 0 };
+      tgEl.classList.add('is-panning');
+    }
+    e.preventDefault();
+    clearTimeout(pan.timer);
+    pan.dx -= x;
+    const step = panStep(), room = (panBuf() - 1) * step;
+    if (Math.abs(pan.dx) > room) { // long swipe: move the window, keep the offset, so more days stay drawn
+      const k = Math.trunc(-pan.dx / step);
+      pan.dx += k * step;
+      shiftDays(k);
+    }
+    if (!reducedMotion.matches) setDx(pan.dx);
+    pan.timer = setTimeout(settle, PAN_IDLE);
+  }, { passive: false });
 
   async function syncNow(btn) {
     btn.disabled = true; btn.textContent = 'Syncing…';
@@ -521,7 +595,7 @@
   renderTodayBtn();
   loadSwitches();
   load(false).catch(() => {});
-  setInterval(() => { renderTodayBtn(); if (doc && mode !== 'month') renderTime(); }, 60e3);
+  setInterval(() => { renderTodayBtn(); if (doc && mode !== 'month' && !pan) renderTime(); }, 60e3);
   WizardApp.theme.onChange(() => { if (doc) render(); });
   document.addEventListener('visibilitychange', () => { if (!document.hidden) { loadSwitches(); load(false).catch(() => {}); } });
 })();
