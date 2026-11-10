@@ -56,6 +56,9 @@ SWITCHES = [
     {'id': 'trackpad-swipe', 'name': 'Trackpad day swipe',
      'description': 'In Day and Week, a two-finger sideways swipe (or Shift + mouse wheel) moves the calendar one day at a time, like Mac Calendar.',
      'default': False, 'issues': ['humanitylabs-org/wizard-calendar#21']},
+    {'id': 'reply-on-event', 'name': 'Reply on an event',
+     'description': 'A Reply button in event details opens an unsent Chats draft with the event attached. Calendar sends nothing.',
+     'default': False, 'issues': ['humanitylabs-org/wizard-calendar#25']},
 ]
 
 

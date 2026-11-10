@@ -415,3 +415,6 @@ html[data-compact-header] .dhd .w { font-size: .625rem; }
 @media (pointer: coarse) {
   html[data-compact-header] .nav { width: 34px; height: 34px; }
 }
+/* Reply on an event (switch reply-on-event): a kit secondary button in the action row, sized like its link pills. */
+.sheet .acts .wz-button { display: inline-flex; align-items: center; justify-content: center; padding: 10px 14px; border-radius: 12px; border: 1px solid var(--line-2); background: transparent; color: var(--ink); font: inherit; font-weight: 600; font-size: .875rem; cursor: pointer; }
+@media (pointer: coarse) { .sheet .acts .wz-button { min-height: 44px; } }
