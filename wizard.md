@@ -4,12 +4,12 @@ id: wizard-calendar
 name: Calendar
 type: view
 category: app
-version: 0.3.0
-summary: Read-only calendar views from private Google iCal links and Connected accounts, plus snapshot import.
+version: 0.3.7
+summary: Your Google and Microsoft calendars in one view. Add, edit and answer invites; private iCal links and snapshots too.
 license: MIT
 source: https://github.com/humanitylabs-org/wizard-calendar
 runtime:
-  package: image
+  package: source
   kind: runtipi
   config: runtipi/config.json
   compose: runtipi/docker-compose.yml
@@ -29,21 +29,26 @@ view:
     path: web
     build: python3 tools/check_view.py
     dist: web
-provides: [calendar-viewing, calendar-import, calendar-sync]
+provides: [calendar-viewing, calendar-import, calendar]
 system: false
-uses: [connected-accounts]
+uses: [mail-calendar, wizard-google, wizard-microsoft]
 needs: []
 health: /healthz
+# Feature switches (wizard.app-switches/1, wizard-os docs/APP_SWITCHES.md): the App Manager lists and flips them, so the
+# WizardOS Tracker's Try it works the same in every browser. Off by default.
+switches:
+  contract: wizard.app-switches/1
+  path: /api/switches
 ---
 
-# Calendar
+# Calendar — private test release
 
-Empty by default. No provider credentials or account configuration are included.
-Owners add a private Google iCal link in Settings (stored locally, refreshed as a read-only
-snapshot) and/or link Google in Connected accounts for grant-scoped sync; Calendar never
-writes provider events. The API and MCP expose only the redacted visible state. See
-OSCAR-SETUP.md for privacy, Connected accounts setup, grant routing and the snapshot contract.
+Empty by default; the first screen offers Connect Google / Connect Microsoft. Connecting runs inside Calendar
+(web/connect.js, the same sheet as Wizard Mail): Quick connect through Composio in one window, or your own app in the
+Google / Microsoft app. Connected calendars are read and changed through those apps' box-only
+`wizard.mail-calendar/1` API (Calendar never holds a sign-in): Day / Week / Month, add, edit, delete, answer invites.
+Owners can still add a private Google iCal link in Settings; Calendar stores it locally, refreshes a read-only
+snapshot and never writes iCal or snapshot events. The API and MCP
+expose only the redacted visible state. See OSCAR-SETUP.md for privacy and snapshot contracts.
 The Wizard gateway must serve its approved shared app-client.js resource. A standalone
-install uses tools/run_portable.py with the already-pulled image.
-The default gateway path is /wizard-calendar/ (the server accepts this prefix and /).
-See RELEASE.md for image packaging, grant policy and verification boundaries.
+install uses tools/run_portable.py without an app image build. Not a public store listing.

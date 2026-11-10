@@ -3,15 +3,15 @@
   "id": "wizard-calendar",
   "wizard_type": "view",
   "available": true,
-  "short_desc": "Read-only calendar from Google iCal links and Connected accounts.",
+  "short_desc": "Your Google and Microsoft calendars, plus private iCal links.",
   "author": "Humanity Labs",
   "port": 8799,
   "categories": [
     "utilities"
   ],
-  "description": "Private Google iCal subscriptions and Google calendars synced through Connected accounts; see OSCAR-SETUP.md.",
-  "tipi_version": 1,
-  "version": "0.3.0",
+  "description": "Calendar for your Wizard: connect Google or Microsoft from inside Calendar (Quick connect through Composio, or your own app in the Google / Microsoft app) to see, add, change and delete events and answer invites. Private Google iCal links and snapshot import stay read-only.",
+  "tipi_version": 11,
+  "version": "0.3.7",
   "source": "https://github.com/humanitylabs-org/wizard-calendar",
   "exposable": false,
   "supported_architectures": [
@@ -19,20 +19,11 @@
     "arm64"
   ],
   "created_at": 1792063413573,
-  "updated_at": 1792063413573,
+  "updated_at": 1793764051000,
   "dynamic_config": true,
   "min_tipi_version": "4.8.0",
   "uid": 1000,
   "gid": 1000,
-  "form_fields": [
-    {
-      "type": "text",
-      "env_variable": "CALENDAR_TIMEZONE",
-      "label": "Owner timezone (IANA name, optional)",
-      "required": false,
-      "default": "",
-      "hint": "For example Asia/Bangkok. Leave empty to display each browser's timezone; sync window then uses UTC."
-    }
-  ],
+  "form_fields": [],
   "no_gui": false
 }

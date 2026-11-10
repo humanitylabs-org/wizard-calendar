@@ -1,13 +1,17 @@
-/* Wizard Calendar — Day / Week / Month views (bottom tabs, Week default), widget, agenda, event sheet. Data: ./api/events (explicit snapshot import). */
+/* Wizard Calendar — Day / Week / Month views (bottom tabs, Week default), agenda, event sheet. Data: ./api/events — connected
+ * Google/Microsoft calendars (through their apps; add, edit, delete, answer invites), private iCal links and snapshot import. */
 (() => {
   const $ = (s) => document.querySelector(s);
   const API = new URL('api/events', location.href).pathname;
-  const browserTZ = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
-  let TZ = browserTZ;
+  let TZ = 'UTC';
   let doc = null, byDay = new Map(), view = null, sel = null, sheetOpen = false;
-  const MODES = ['day', 'week', 'month'], HOUR = 48;
+  const MODES = ['day', 'week', 'month'];
+  // Day/Week show the whole day (00:00–24:00) without scrolling: the hour height follows the grid's height (fitHour).
+  const MIN_HOUR = 9, MIN_BLK = 14;
+  let HOUR = 48;
   let mode = MODES.includes(localStorage.getItem('wc.mode')) ? localStorage.getItem('wc.mode') : 'week';
   let needScroll = true; // scroll the time grid to "now" on the next render
+  let range = null, loading = null; // the loaded live window [from, to)
 
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const keyFmt = () => new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' });
@@ -43,7 +47,8 @@
 
   function renderGrid() {
     const [y, m] = view;
-    $('[data-month]').textContent = new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', month: 'long', year: 'numeric' }).format(new Date(Date.UTC(y, m, 15)));
+    const mt = (month) => new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', month, year: 'numeric' }).format(new Date(Date.UTC(y, m, 15)));
+    setTitle(mt('long'), mt('short'));
     const first = `${y}-${String(m + 1).padStart(2, '0')}-01`;
     const lead = (civil(first).getUTCDay() + 6) % 7; // Monday first
     const start = addDays(first, -lead);
@@ -94,16 +99,33 @@
     const when = doc.syncedAt ? fmtSynced(doc.syncedAt) : 'never';
     const cals = (doc.calendars || []).filter((c) => !c.hidden).map((c) => `${esc(c.name)}`).join(' · ');
     const err = doc.syncError || (doc.errors || []).join('; ');
-    const parts = [];
-    if (doc.source === 'connected_accounts') parts.push('Connected accounts');
-    if ((doc.connected || []).length) parts.push('Google iCal');
-    const origin = parts.length ? parts.join(' + ') : doc.calendars?.length ? 'Manual snapshot' : 'Calendar';
-    const updated = parts.length ? 'Updated' : 'Imported';
-    $('[data-foot]').innerHTML = `${origin} · ${cals}<br>${updated} ${when} · <button class="lnk" data-cals>Settings</button>${err ? `<br><span class="err">Sync issue: ${esc(err)}</span>` : ''}`;
+    const source = (doc.connected || []).length ? 'Updated' : 'Imported';
+    $('[data-foot]').innerHTML = `Calendar · ${cals}<br>${source} ${when} · <button class="lnk" data-cals>Settings</button>${err ? `<br><span class="err">Sync issue: ${esc(err)}</span>` : ''}`;
+  }
+
+  // The bar title: the long form, plus a short one that narrow windows show (CSS) so the arrows and title share one line.
+  function setTitle(long, short) {
+    const t = $('[data-month]');
+    t.innerHTML = `<span class="wc-tl">${esc(long)}</span><span class="wc-ts" aria-hidden="true">${esc(short)}</span>`;
+    t.setAttribute('aria-label', `${long}. Jump to today`);
   }
 
   // ---- Day / Week time grid ----
   const weekStart = (k) => addDays(k, -((civil(k).getUTCDay() + 6) % 7)); // Monday first
+  // Week view is a rolling 7 days: wkDow is its first weekday (0 = Monday … 6 = Sunday). The one-day buttons move it;
+  // 7-day steps, swipes, Today and view switches keep it, so a Tuesday–Monday week stays one until stepped back.
+  let wkDow = 0;
+  const dowMon = (k) => (civil(k).getUTCDay() + 6) % 7;
+  const rollStart = (k) => addDays(k, -((dowMon(k) - wkDow + 7) % 7));
+  // Move the Week window by n days (±7 = a week, ±1 = one day). Today is chosen when it is in view, else the selected day
+  // moves with the window and stays inside it.
+  function stepWeek(n) {
+    const ws = addDays(rollStart(sel), n), we = addDays(ws, 6), tk = todayKey();
+    wkDow = dowMon(ws);
+    let k = addDays(sel, n);
+    if (tk >= ws && tk <= we) k = tk; else if (k < ws) k = ws; else if (k > we) k = we;
+    sel = k; needScroll = true; renderTime(); ensureRange();
+  }
   const hm = (iso) => {
     const p = new Intl.DateTimeFormat('en-GB', { timeZone: TZ, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(iso));
     return +p.find((x) => x.type === 'hour').value * 60 + +p.find((x) => x.type === 'minute').value;
@@ -149,67 +171,76 @@
     return bars;
   }
 
-  // Trackpad day swipe (switch trackpad-swipe, issue 21): Week becomes a sliding 7-day window that can start on any day,
-  // and Day/Week render `buf` extra days each side so the grid can follow the fingers with the next days already drawn.
-  let wkStart = null, pan = null;
-  const swipeOn = () => switchOn('trackpad-swipe');
-  const windowStart = () => mode === 'week' ? (swipeOn() && wkStart ? wkStart : weekStart(sel)) : sel;
-  const panBuf = () => swipeOn() ? (mode === 'week' ? 7 : 3) : 0;
+  // Hour height that fits all 24 hours in the time grid's visible height (never below MIN_HOUR; then the grid scrolls).
+  function fitHour() {
+    const body = $('[data-tbody]'), tin = $('[data-tin]');
+    const h = body.clientHeight;
+    if (!h) return HOUR;
+    const cs = getComputedStyle(tin);
+    const avail = h - parseFloat(cs.marginTop) - parseFloat(cs.marginBottom) - 1;
+    return Math.max(MIN_HOUR, Math.floor(avail / 24 * 4) / 4);
+  }
 
   function renderTime() {
-    const tk = todayKey(), now = Date.now(), ws = weekStart(sel), start = windowStart();
+    const tk = todayKey(), now = Date.now(), ws = mode === 'week' ? rollStart(sel) : weekStart(sel);
     const strip = [...Array(7)].map((_, i) => addDays(ws, i));
-    const days = mode === 'week' ? [...Array(7)].map((_, i) => addDays(start, i)) : [sel];
-    const n = days.length, tg = $('[data-time]'), buf = panBuf();
-    const span = buf ? [...Array(n + 2 * buf)].map((_, i) => addDays(days[0], i - buf)) : days;
-    const track = (html) => buf ? `<div class="pan">${html}</div>` : html;
+    const days = mode === 'week' ? strip : [sel];
+    const n = days.length, tg = $('[data-time]');
     tg.classList.toggle('is-day', mode === 'day');
-    tg.classList.toggle('is-pan', !!buf);
     tg.style.setProperty('--n', n);
-    tg.style.setProperty('--tn', span.length);
-    tg.style.setProperty('--buf', buf);
 
     // Title
     if (mode === 'week') {
-      const a = civil(days[0]), b = civil(days[6]);
+      const a = civil(strip[0]), b = civil(strip[6]);
       const mo = (c, y) => new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', month: y ? 'long' : 'short', ...(y ? { year: 'numeric' } : {}) }).format(c);
-      $('[data-month]').textContent = a.getUTCMonth() === b.getUTCMonth() ? mo(a, 1)
-        : `${mo(a)} – ${mo(b)} ${b.getUTCFullYear()}`;
+      const long = a.getUTCMonth() === b.getUTCMonth() ? mo(a, 1) : `${mo(a)} – ${mo(b)} ${b.getUTCFullYear()}`;
+      // Narrow windows show a short title ("Nov", "Oct–Nov") so the week and day arrows fit beside it on one line.
+      const yr = b.getUTCFullYear() === +tk.slice(0, 4) ? '' : ` ${b.getUTCFullYear()}`;
+      const short = (a.getUTCMonth() === b.getUTCMonth() ? mo(a) : `${mo(a)}–${mo(b)}`) + yr;
+      setTitle(long, short);
     } else {
-      $('[data-month]').textContent = fmtC(sel, { weekday: 'short', day: 'numeric', month: 'long' }) + (sel.slice(0, 4) === tk.slice(0, 4) ? '' : ` ${sel.slice(0, 4)}`);
+      const yr = sel.slice(0, 4) === tk.slice(0, 4) ? '' : ` ${sel.slice(0, 4)}`;
+      setTitle(fmtC(sel, { weekday: 'short', day: 'numeric', month: 'long' }) + yr, fmtC(sel, { weekday: 'short', day: 'numeric', month: 'short' }) + yr);
     }
 
     // Day heads: Week → tap opens that day; Day → week strip to hop between days.
-    const headDays = mode === 'week' ? span : strip;
-    $('[data-heads]').innerHTML = track(headDays.map((k) => {
+    $('[data-heads]').innerHTML = strip.map((k) => {
       const c = civil(k), evs = (byDay.get(k) || []).length;
       const cls = ['dhd', k === tk && 'today', mode === 'day' && k === sel && 'sel', k < tk && 'past', [0, 6].includes(c.getUTCDay()) && 'wkend'].filter(Boolean).join(' ');
       return `<button class="${cls}" data-dayview="${k}" aria-label="${fmtC(k, { weekday: 'long', day: 'numeric', month: 'long' })}, ${evs} events"><span class="w">${fmtC(k, { weekday: 'short' })}</span><span class="n">${c.getUTCDate()}</span></button>`;
-    }).join(''));
-    $('[data-heads]').classList.toggle('is-strip', mode !== 'week');
+    }).join('');
 
     // All-day row
-    const bars = allDayLanes(span);
+    const bars = allDayLanes(days);
     $('[data-allrow]').hidden = !bars.length;
-    $('[data-lanes]').innerHTML = track(bars.map(({ e, s, en, lane, cutL, cutR }) =>
-      `<button class="ad${cutL ? ' cut-l' : ''}${cutR ? ' cut-r' : ''}" data-ev="${esc(e.id)}" style="--c:${esc(e.color)};grid-column:${s + 1} / ${en + 2};grid-row:${lane + 1}">${esc(e.title)}</button>`).join(''));
+    $('[data-lanes]').innerHTML = bars.map(({ e, s, en, lane, cutL, cutR }) =>
+      `<button class="ad${cutL ? ' cut-l' : ''}${cutR ? ' cut-r' : ''}" data-ev="${esc(e.id)}" style="--c:${esc(e.color)};grid-column:${s + 1} / ${en + 2};grid-row:${lane + 1}">${esc(e.title)}</button>`).join('');
 
-    // Hours + columns
+    // Hours + columns: 24 rows sized to fit; labels thin out when rows get too short for every one.
+    HOUR = fitHour();
+    tg.style.setProperty('--hour', `${HOUR}px`);
+    tg.classList.toggle('dense', HOUR < 30);
+    const every = HOUR >= 13 ? 1 : HOUR >= 9 ? 2 : 3;
     let hours = '';
-    for (let h = 1; h < 24; h++) hours += `<span style="top:${h * HOUR}px">${String(h).padStart(2, '0')}:00</span>`;
-    const cols = span.map((k) => {
+    for (let h = 0; h < 24; h += every) hours += `<span style="top:${h * HOUR}px">${String(h).padStart(2, '0')}:00</span>`;
+    const cols = days.map((k) => {
       const blocks = layoutDay(k).map(({ e, s, en, col, n: nc }) => {
-        const top = s / 60 * HOUR, h = Math.max((en - s) / 60 * HOUR, 18);
+        const top = Math.min(s / 60 * HOUR, 24 * HOUR - MIN_BLK), h = Math.max((en - s) / 60 * HOUR, MIN_BLK);
+        const tight = h < (mode === 'day' ? 36 : 28);
         const past = new Date(e.end).getTime() < now;
         const live = new Date(e.start).getTime() <= now && !past;
         const time = `${minsIn(e.start, k) === 0 && dayKey(new Date(e.start)) < k ? '…' : fmtT(e.start)}–${dayKey(new Date(new Date(e.end) - 1)) > k ? '…' : fmtT(e.end)}`;
+        // Lines of title that fit above the optional time line (the rest ends with an ellipsis).
+        const lh = mode === 'day' ? 16.2 : 12.6;
+        const sub0 = mode === 'day' || h >= 44;
+        const lines = Math.max(1, Math.floor((h - (mode === 'day' ? 9 : 5) - (sub0 ? lh : 0)) / lh));
         const sub = mode === 'day' ? `${time}${e.location ? ` · ${esc(e.location)}` : ''}` : (h >= 44 ? fmtT(e.start) : '');
-        return `<button class="blk${past ? ' past' : ''}${live ? ' live' : ''}" data-ev="${esc(e.id)}" style="--c:${esc(e.color)};top:${top}px;height:${h - 2}px;left:calc(${col / nc * 100}% + 1px);width:calc(${100 / nc}% - 2px)" aria-label="${esc(e.title)}, ${time}"><b>${esc(e.title)}</b>${sub ? `<span>${sub}</span>` : ''}</button>`;
+        return `<button class="blk${past ? ' past' : ''}${live ? ' live' : ''}${tight ? ' tight' : ''}" data-ev="${esc(e.id)}" style="--c:${esc(e.color)};top:${top}px;height:${Math.max(h - 1, MIN_BLK - 1)}px;left:calc(${col / nc * 100}% + 1px);width:calc(${100 / nc}% - 2px)" aria-label="${esc(e.title)}, ${time}"><b${tight ? '' : ` style="-webkit-line-clamp:${lines}"`}>${esc(e.title)}</b>${sub ? `<span>${sub}</span>` : ''}</button>`;
       }).join('');
       const nowLine = k === tk ? `<i class="now" style="top:${nowMins() / 60 * HOUR}px"></i>` : '';
       return `<div class="col${k === tk ? ' today' : ''}" data-col="${k}">${blocks}${nowLine}</div>`;
     }).join('');
-    $('[data-tin]').innerHTML = `<div class="tg-hrs">${hours}</div><div class="tg-cols">${track(cols)}</div>`;
+    $('[data-tin]').innerHTML = `<div class="tg-hrs">${hours}</div><div class="tg-cols">${cols}</div>`;
 
     if (needScroll) {
       needScroll = false;
@@ -228,14 +259,18 @@
     $('[data-scroll]').hidden = !month;
     $('[data-time]').hidden = month;
     for (const b of document.querySelectorAll('[data-mode]')) { const on = b.dataset.mode === mode; b.classList.toggle('on', on); b.setAttribute('aria-selected', String(on)); }
-    const unit = { day: 'day', week: 'week', month: 'month' }[mode];
-    $('[data-prev]').setAttribute('aria-label', `Previous ${unit}`);
-    $('[data-next-month]').setAttribute('aria-label', `Next ${unit}`);
+    // Week: « » move a week, ‹ › (beside the title) move one day. Day and Month: ‹ › move one day / month.
+    const week = mode === 'week', unit = { day: 'day', week: 'day', month: 'month' }[mode];
+    $('[data-prev]').setAttribute('aria-label', week ? 'Back one day' : `Previous ${unit}`);
+    $('[data-next-month]').setAttribute('aria-label', week ? 'Forward one day' : `Next ${unit}`);
+    $('[data-prev]').title = week ? 'Back one day' : `Previous ${unit}`;
+    $('[data-next-month]').title = week ? 'Forward one day' : `Next ${unit}`;
+    for (const b of document.querySelectorAll('[data-step], [data-unit]')) b.hidden = !week;
+    $('[data-go]').classList.toggle('is-week', week);
   }
 
   function setMode(m) {
     if (!MODES.includes(m)) return;
-    wkStart = null; // a new view starts from the Monday-first week again
     mode = m; localStorage.setItem('wc.mode', m); needScroll = true;
     if (m === 'month' && sel) view = [+sel.slice(0, 4), +sel.slice(5, 7) - 1];
     applyMode(); render();
@@ -246,35 +281,30 @@
     if (mode === 'month') { renderGrid(); renderAgenda(); } else renderTime();
   }
 
-  // Preserve the live Calendar's skin palette; stored provider colors stay intact.
+  // Calendars take the skin's palette (CSS --k0…, --k-holiday), not Google's colours. Stable by calendar order.
   function skinColours() {
-    CalendarAppearance.colourCalendars(doc);
+    const slot = new Map(); let n = 0;
+    for (const c of doc.calendars || []) slot.set(c.id, /#holiday@/.test(c.id) ? 'var(--k-holiday)' : `var(--k${n++ % 5})`);
+    for (const c of doc.calendars || []) c.color = slot.get(c.id);
+    for (const e of doc.events || []) if (slot.has(e.cal)) e.color = slot.get(e.cal);
   }
   function renderTodayBtn() { $('[data-today-num]').textContent = +todayKey().slice(8); }
   function goToday() {
-    sel = todayKey(); wkStart = null; needScroll = true;
+    sel = todayKey(); needScroll = true;
     if (mode === 'month') { view = [+sel.slice(0, 4), +sel.slice(5, 7) - 1]; $('[data-scroll]').scrollTo({ top: 0, behavior: 'smooth' }); renderView(); }
     else renderTime();
   }
 
-  const setupMessages = {
-    not_linked: 'Connect your Google account in Connected accounts, then turn on Calendar for it.',
-    needs_google_app: 'Add your own Google OAuth app once in Connected accounts. Calendar never receives your Google credentials.',
-    needs_account: 'Your Google app is ready. Sign in to your Google account in Connected accounts.',
-    needs_permission: 'Allow read-only calendar access or reconnect the account in Connected accounts.',
-    error: 'Sync could not finish. Open Settings to review the error and try again.',
-    ok: 'No calendars are available yet. Check your account in Connected accounts.'
-  };
-  const setupLink = () => `<a class="btn wz-button" data-connect href="${esc(doc?.sync?.setup_url || '/wizard-connectors/')}" target="_top">Open Connected accounts</a>`;
+  const liveCals = () => (doc?.calendars || []).filter((c) => c.live);
   function render() {
-    skinColours(); index(); renderTodayBtn(); applyMode(); renderView(); renderFoot();
-    const empty = !doc.calendars?.length;
-    $('[data-setup]').hidden = !empty;
-    if (empty) {
-      $('[data-scroll]').hidden = true; $('[data-time]').hidden = true;
-      $('[data-setup]').innerHTML = `<h1>Connect your Google calendar</h1><p>${esc(setupMessages[doc.sync?.state] || setupMessages.not_linked)}</p><p>Your events sync automatically. You can also add a private Google iCal link in Settings. Calendar only reads events, never changes them.</p>${setupLink()}<button class="lnk" data-cals>Settings · add a Google iCal link or import a snapshot instead</button>`;
-    }
-    $('[data-status]').textContent = empty ? 'No calendar yet. Connect Google accounts or add a Google iCal link in Settings.' : `${doc.events.length} visible events · ${TZ}`;
+    skinColours(); index(); renderTodayBtn(); renderView(); renderFoot(); renderSugg();
+    const none = !doc.calendars?.length;
+    $('[data-hello]').hidden = !none;
+    document.querySelector('.app').classList.toggle('is-empty', none);
+    for (const b of document.querySelectorAll('[data-new]')) b.hidden = !liveCals().length;
+    // The count is for screen readers only: the calendar itself shows the events.
+    const st = $('[data-status]');
+    if (!(st.dataset.toastUntil > Date.now())) { st.textContent = none ? '' : `${doc.events.length} visible events · ${TZ}`; st.hidden = none; st.classList.add('wc-sr'); }
   }
 
   // Domain overlays use the shared Back stack, never app-owned root guards.
@@ -298,12 +328,206 @@
       <div class="row"><span class="k">Calendar</span><span class="v chip"><i style="background:${esc(e.color)}"></i>${esc(cal?.name || '')}</span></div>
       ${e.location ? `<div class="row"><span class="k">Where</span><span class="v">${esc(e.location)}</span></div>` : ''}
       ${e.attendees ? `<div class="row"><span class="k">Guests</span><span class="v">${e.attendees}</span></div>` : ''}
+      ${e.guests ? `<div class="row"><span class="k">Guests</span><span class="v">${esc(e.guests)}</span></div>` : ''}
       ${desc ? `<div class="row"><span class="k">Notes</span><span class="v">${esc(desc)}</span></div>` : ''}
-      <div class="acts">${e.meet ? `<a href="${esc(e.meet)}" target="_blank" rel="noopener">Join Meet</a>` : ''}${maps ? `<a href="${esc(maps)}" target="_blank" rel="noopener">Map</a>` : ''}${e.link ? `<a href="${esc(e.link)}" target="_blank" rel="noopener">Open in Google Calendar</a>` : ''}</div>`;
+      <div class="acts">${e.meet ? `<a href="${esc(e.meet)}" target="_blank" rel="noopener">Join Meet</a>` : ''}${maps ? `<a href="${esc(maps)}" target="_blank" rel="noopener">Map</a>` : ''}${e.link ? `<a href="${esc(e.link)}" target="_blank" rel="noopener">${e.live ? 'Open in ' + (cal?.source === 'microsoft' ? 'Outlook' : 'Google Calendar') : 'Open in Google Calendar'}</a>` : ''}</div>
+      ${e.live ? liveActions(e) : ''}<div class="msg" data-c-msg role="status"></div>`;
     showSheet();
     if (!sheetOpen) { sheetOpen = true; sheetBack = WizardApp.back.push(() => { closeSheet(); return true; }); }
   }
   // role/aria-modal only while open: the Wizard shell reads them to confirm a Back press closed something.
+  // ---- connected calendars: answer, add, edit, delete (the source app does the work) ----
+  const RSVP = [['accepted', 'Going'], ['tentative', 'Maybe'], ['declined', 'Not going']];
+  function liveActions(e) {
+    const L = e.live;
+    const rsvp = L.invited ? `<div class="sec">Your answer</div><div class="rsvp">${RSVP.map(([v, t]) => `<button class="chip-btn${L.my_response === v ? ' on' : ''}" data-rsvp="${v}" data-evid="${esc(e.id)}" aria-pressed="${L.my_response === v}">${t}</button>`).join('')}</div>` : '';
+    const edit = L.is_organizer || !L.invited ? `<button class="btn" data-edit="${esc(e.id)}">Edit</button><button class="btn danger" data-del="${esc(e.id)}">Delete</button>` : '';
+    return `${rsvp}${edit ? `<div class="live-acts">${edit}</div>` : ''}${L.recurring ? '<p class="note">This event repeats. Changes apply to this one when your calendar allows it, otherwise to every repeat.</p>' : ''}`;
+  }
+  async function livePost(path, body) {
+    const r = await fetch(new URL(path, location.href).pathname, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-Wizard-Request': 'calendar' }, body: JSON.stringify(body) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || `Request failed (${r.status})`);
+    return d;
+  }
+  const evById = (id) => (doc?.events || []).find((x) => x.id === id);
+  const target = (e) => ({ account: e.live.account, calendar_id: e.live.calendar_id, id: e.live.id });
+  async function rsvp(btn) {
+    const e = evById(btn.dataset.evid); if (!e) return;
+    for (const b of btn.parentElement.children) { b.disabled = true; }
+    try { await livePost('api/live/respond', { ...target(e), response: btn.dataset.rsvp }); closeSheet(); toast(`Answered: ${btn.textContent}`); await load(false); }
+    catch (err) { for (const b of btn.parentElement.children) b.disabled = false; say(err.message); }
+  }
+  async function del(btn) {
+    const e = evById(btn.dataset.del); if (!e) return;
+    if (btn.dataset.sure !== '1') { btn.dataset.sure = '1'; btn.textContent = 'Delete for good?'; return; }
+    btn.disabled = true;
+    try { await livePost('api/live/delete', target(e)); closeSheet(); toast('Event deleted'); await load(false); }
+    catch (err) { btn.disabled = false; say(err.message); }
+  }
+  const pad = (n) => String(n).padStart(2, '0');
+  const hhmm = (mins) => `${pad(Math.floor(mins / 60) % 24)}:${pad(mins % 60)}`;
+  function openForm(e, preset) {
+    const cals = liveCals(); if (!cals.length) return connect();
+    const all = e ? e.allDay : !!preset?.allDay;
+    const day = e ? (e.allDay ? e.start.slice(0, 10) : dayKey(new Date(e.start))) : (preset?.day || sel || todayKey());
+    const endDay = e ? (e.allDay ? addDays(e.end.slice(0, 10), -1) : dayKey(new Date(new Date(e.end) - 1))) : day;
+    const sm = e && !e.allDay ? hm(e.start) : (preset?.mins ?? Math.min(23 * 60, Math.ceil((nowMins() + 1) / 30) * 30));
+    const em = e && !e.allDay ? hm(e.end) : Math.min(sm + 60, 23 * 60 + 59);
+    const opts = cals.map((c) => `<option value="${esc(c.id)}"${e && e.cal === c.id ? ' selected' : ''}>${esc(c.name)}</option>`).join('');
+    $('[data-sheet]').innerHTML = `<div class="sh-top"><span class="grab"></span><button class="x" data-close aria-label="Close">✕</button></div><h2>${e ? 'Edit event' : 'New event'}</h2>
+      <form class="ev-form" data-form novalidate>
+        <label class="field">Title<input type="text" name="title" maxlength="300" required value="${esc(e?.title || '')}" autocomplete="off"></label>
+        <label class="check"><input type="checkbox" name="allDay"${all ? ' checked' : ''}> All day</label>
+        <div class="two"><label class="field">Starts<input type="date" name="day" value="${day}" required></label><label class="field t">Time<input type="time" name="start" value="${hhmm(sm)}" step="300"></label></div>
+        <div class="two"><label class="field">Ends<input type="date" name="endDay" value="${endDay}" required></label><label class="field t">Time<input type="time" name="end" value="${hhmm(em)}" step="300"></label></div>
+        <label class="field">Where<input type="text" name="location" maxlength="300" value="${esc(e?.location || '')}" autocomplete="off"></label>
+        <label class="field">Notes<textarea name="description" rows="3" maxlength="4000">${esc(e?.description || '')}</textarea></label>
+        ${e ? '' : `<label class="field">Calendar<select name="cal">${opts}</select></label>`}
+        <p class="note">${e ? 'Saved to' : 'Adds the event to'} your ${e ? esc((cals.find((c) => c.id === e.cal) || {}).name || 'calendar') : 'chosen calendar'}. Times are ${esc(TZ)}.</p>
+        <div class="live-acts"><div class="msg" data-c-msg role="status"></div><button class="btn primary" type="submit">${e ? 'Save' : 'Add event'}</button></div>
+      </form>`;
+    const f = $('[data-form]');
+    const sync = () => { for (const n of f.querySelectorAll('.t')) n.hidden = f.allDay.checked; };
+    f.allDay.addEventListener('change', sync); sync();
+    f.day.addEventListener('change', () => { if (f.endDay.value < f.day.value) f.endDay.value = f.day.value; });
+    f.addEventListener('submit', (ev) => { ev.preventDefault(); save(f, e); });
+    showSheet();
+    if (!sheetOpen) { sheetOpen = true; sheetBack = WizardApp.back.push(() => { closeSheet(); return true; }); }
+    if (!e) setTimeout(() => f.title.focus(), 60);
+  }
+  async function save(f, e) {
+    const title = f.title.value.trim();
+    if (!title) return say('Give the event a title.');
+    if (!f.day.value || !f.endDay.value) return say('Choose the dates.');
+    const all = f.allDay.checked;
+    const body = { title, location: f.location.value.trim(), description: f.description.value };
+    if (all) { body.start = f.day.value; body.end = addDays(f.endDay.value < f.day.value ? f.day.value : f.endDay.value, 1); }
+    else {
+      body.start = `${f.day.value}T${f.start.value || '09:00'}`; body.end = `${f.endDay.value}T${f.end.value || '10:00'}`; body.time_zone = TZ;
+      if (body.end <= body.start) return say('The event ends before it starts.');
+    }
+    const btn = f.querySelector('[type=submit]'); btn.disabled = true; btn.textContent = 'Saving…';
+    try {
+      if (e) await livePost('api/live/update', { ...target(e), ...body });
+      else await livePost('api/live/create', { account: f.cal.value, ...body });
+      sel = f.day.value; closeSheet(); toast(e ? 'Event saved' : 'Event added'); await load(false);
+    } catch (err) { btn.disabled = false; btn.textContent = e ? 'Save' : 'Add event'; say(err.message); }
+  }
+  function connect(source, backToSettings) {
+    if (!window.WizardConnect) return;
+    if (sheetOpen) closeSheet();
+    window.WizardConnect.open({ purpose: 'calendar', source, onDone: async () => {
+      range = null;
+      await load(false).catch(() => {});
+      if (backToSettings) openCals();
+    } });
+  }
+
+  // ---- agents' suggestions (Suggest only): kept by the Google / Microsoft apps, shown here with Approve / Dismiss.
+  // Only the owner's tap applies one: Calendar's server forwards it with Calendar's App Manager grant. ----
+  const ANSWER = { accepted: 'Going', tentative: 'Maybe', declined: 'Not going' };
+  const sgKey = (s) => `${s.source}:${s.id}`;
+  const sgEvent = (s) => (doc?.events || []).find((e) => e.live && e.live.id === s.event_id && (!s.account || e.live.account === s.account));
+  function sgPart(v) {
+    if (!v || typeof v !== 'string') return null;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return { day: v, all: true };
+    if (/(Z|[+-]\d{2}:\d{2})$/.test(v)) return { day: dayKey(new Date(v)), time: fmtT(v) };
+    return { day: v.slice(0, 10), time: v.slice(11, 16) };
+  }
+  function sgWhen(start, end) {
+    const a = sgPart(start), b = sgPart(end);
+    if (!a) return '';
+    const d = (k) => fmtC(k, { weekday: 'short', day: 'numeric', month: 'short' });
+    if (a.all) { const last = b ? addDays(b.day, -1) : a.day; return `${d(a.day)}${last > a.day ? ` – ${d(last)}` : ''} · All day`; }
+    return `${d(a.day)} · ${a.time}${b ? `–${b.day !== a.day ? `${d(b.day)} ` : ''}${b.time}` : ''}`;
+  }
+  function evWhen(e) { return e ? (e.allDay ? sgWhen(e.start.slice(0, 10), e.end.slice(0, 10)) : sgWhen(e.start, e.end)) : ''; }
+  function sgTitle(s) {
+    const ev = sgEvent(s), name = ev?.title || s.title || 'an event';
+    if (s.action === 'respond') return `Answer “${name}”: ${ANSWER[s.response] || s.response}`;
+    if (s.action === 'delete') return `Delete “${name}”`;
+    if (s.action === 'update') return `Change “${ev?.title || 'an event'}”`;
+    return `Add “${s.title || 'New event'}”`;
+  }
+  function sgSub(s) {
+    const ev = sgEvent(s), bits = [];
+    if (s.action === 'create') bits.push(sgWhen(s.start, s.end));
+    else if (s.action === 'update') {
+      if (s.title && s.title !== ev?.title) bits.push(`rename to “${s.title}”`);
+      if (s.start) bits.push(`move to ${sgWhen(s.start, s.end)}`);
+      if (!bits.length) bits.push('new details');
+    } else bits.push(evWhen(ev));
+    return bits.filter(Boolean).join(' · ');
+  }
+  const pending = () => doc?.suggestions || [];
+  function renderSugg() {
+    const box = $('[data-sugg]'), list = pending();
+    box.hidden = !list.length;
+    if (!list.length) { box.replaceChildren(); return; }
+    const s = list[0];
+    box.innerHTML = `<div class="wcs-sg"><button class="wcs-sg-main" data-sg-open><span class="wcs-sg-who">Your agent suggests</span><b>${esc(sgTitle(s))}</b><span>${esc(sgSub(s))}</span></button>
+      <span class="wcs-sg-acts"><button class="wcs-btn" data-sg-dismiss="${esc(sgKey(s))}">Dismiss</button><button class="wcs-btn wcs-primary" data-sg-approve="${esc(sgKey(s))}">Approve</button></span></div>
+      ${list.length > 1 ? `<button class="wcs-sg-more" data-sg-open>${list.length - 1} more suggestion${list.length > 2 ? 's' : ''}</button>` : ''}<p class="wcs-sg-err" data-sg-err role="alert"></p>`;
+  }
+  function openSuggestions() {
+    const list = pending();
+    if (!list.length) return;
+    const rows = list.map((s) => {
+      const ev = sgEvent(s), cal = (doc.calendars || []).find((c) => c.id === s.account);
+      const facts = [['Calendar', cal?.name || s.email], s.location && ['Where', s.location], s.attendees?.length && ['Guests', s.attendees.join(', ')],
+        s.description && ['Notes', s.description], ev && s.action !== 'create' && ['Now', evWhen(ev)]].filter(Boolean);
+      return `<div class="wcs-sgi" data-sg-row="${esc(sgKey(s))}"><b>${esc(sgTitle(s))}</b><span class="wcs-sgi-when">${esc(sgSub(s))}</span>
+        ${facts.map(([k, v]) => `<div class="row"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></div>`).join('')}
+        <div class="wcs-sg-acts"><button class="wcs-btn" data-sg-dismiss="${esc(sgKey(s))}">Dismiss</button><button class="wcs-btn wcs-primary" data-sg-approve="${esc(sgKey(s))}">Approve</button></div></div>`;
+    }).join('');
+    $('[data-sheet]').innerHTML = `<div class="sh-top"><span class="grab"></span><button class="x" data-close aria-label="Close">✕</button></div><h2>Suggestions</h2>
+      <p class="note">Your agent suggested ${list.length === 1 ? 'this change' : 'these changes'}. Nothing changes until you approve.</p>${rows}<div class="msg" data-c-msg role="status"></div>`;
+    showSheet();
+    if (!sheetOpen) { sheetOpen = true; sheetBack = WizardApp.back.push(() => { closeSheet(); return true; }); }
+  }
+  async function decide(btn, approve) {
+    const key = approve ? btn.dataset.sgApprove : btn.dataset.sgDismiss;
+    const s = pending().find((x) => sgKey(x) === key); if (!s) return;
+    const acts = btn.parentElement; for (const b of acts.children) b.disabled = true;
+    deciding++; sgGen++;
+    btn.textContent = approve ? 'Approving…' : 'Dismissing…';
+    const err = $('[data-sg-err]'); if (err) err.textContent = '';
+    try {
+      await livePost(`api/live/suggestions/${approve ? 'approve' : 'dismiss'}`, { source: s.source, id: s.id });
+      doc.suggestions = pending().filter((x) => sgKey(x) !== key);
+      renderSugg();
+      const row = document.querySelector(`[data-sg-row="${CSS.escape(key)}"]`);
+      if (row) { row.remove(); if (!pending().length) closeSheet(); }  // the last one handled: back to the calendar
+      if (approve) load(false).catch(() => {});
+    } catch (e) {
+      for (const b of acts.children) b.disabled = false;
+      btn.textContent = approve ? 'Approve' : 'Dismiss';
+      if (sheetOpen) say(e.message); else if (err) err.textContent = e.message;
+    } finally { deciding--; sgGen++; }
+  }
+
+  // An agent can suggest while this window stays open and visible (no visibilitychange then): poll the suggestions
+  // alone (the source apps' own lists, no calendar reads) on focus and every 30 s, and redraw only the banner.
+  let deciding = 0, sgGen = 0, sgBusy = false;
+  const sgSig = (list) => list.map((s) => `${sgKey(s)}@${s.created}`).join('|');
+  async function refreshSugg() {
+    if (!doc || document.hidden || deciding || sgBusy) return;
+    sgBusy = true;
+    const gen = sgGen;
+    try {
+      const r = await fetch('api/live/suggestions', { cache: 'no-store', credentials: 'same-origin', headers: { 'X-Wizard-Request': 'calendar' } });
+      if (!r.ok) return;
+      const d = await r.json(), list = Array.isArray(d.suggestions) ? d.suggestions : null;
+      if (!list || !doc || deciding || gen !== sgGen || sgSig(list) === sgSig(pending())) return;
+      const known = new Set(pending().map(sgKey));
+      doc.suggestions = list;
+      renderSugg();
+      // A suggested change to an event this page has not loaded yet: fetch the view once so the banner can name it.
+      if (!sheetOpen && list.some((s) => !known.has(sgKey(s)) && s.action !== 'create' && !sgEvent(s))) load(false).catch(() => {});
+    } catch { /* offline for a moment: the next tick retries */ } finally { sgBusy = false; }
+  }
+
   function showSheet() { const sh = $('[data-sheet]'); sh.hidden = false; sh.setAttribute('role', 'dialog'); sh.setAttribute('aria-modal', 'true'); $('[data-sheet-back]').hidden = false; }
   function hideSheet() { const sh = $('[data-sheet]'); sh.hidden = true; sh.removeAttribute('role'); sh.removeAttribute('aria-modal'); $('[data-sheet-back]').hidden = true; }
   function closeSheet() { sheetOpen = false; hideSheet(); sheetBack?.release(); sheetBack = null; }
@@ -311,38 +535,39 @@
     document.querySelector('[data-status]').textContent = 'Wizard core is missing. Follow the standalone setup in README.md.';
     return;
   }
-  WizardApp.ready({ name: 'Calendar', version: '0.3.0' });
+  WizardApp.ready({ name: 'Calendar', version: '0.3.7' });
 
-  // Owner feature switches (GET/POST api/switches, wizard.app-switches/1). All off by default.
+  // Owner feature switches (GET/POST api/switches, wizard.app-switches/1). All off by default; the Tracker's Try it
+  // flips the same box state, so this page re-reads them whenever it becomes visible.
   let switches = [];
   const switchOn = (id) => !!switches.find((x) => x.id === id)?.on;
+  const SW_HEAD = { 'X-Wizard-Request': 'calendar', 'X-Wizard-Switch': '1' };
   const wideBar = window.matchMedia('(min-width: 640px)');
-  const bar = $('.bar'), barGrow = $('.bar .grow'), statusEl = $('[data-status]'), tabsEl = $('.tabs');
-  const statusHome = statusEl.nextElementSibling, tabsHome = tabsEl.nextElementSibling;
+  const barEl = $('.bar'), barGrow = $('.bar .grow'), statusEl = $('[data-status]'), tabsEl = $('.app > .tabs');
+  const statusHome = statusEl.nextElementSibling, tabsHome = tabsEl && tabsEl.nextElementSibling;
   // Compact top bar (issue 20): the status line joins the header row, and on wide windows so does the view switcher.
   function placeChrome() {
     const compact = switchOn('compact-header');
     document.documentElement.toggleAttribute('data-compact-header', compact);
-    if (compact) bar.insertBefore(statusEl, barGrow); else statusHome.before(statusEl);
-    if (compact && wideBar.matches) bar.insertBefore(tabsEl, barGrow); else tabsHome.before(tabsEl);
+    if (compact) barEl.insertBefore(statusEl, barGrow); else if (statusEl.parentNode === barEl) statusHome.before(statusEl);
+    if (tabsEl) { if (compact && wideBar.matches) barEl.insertBefore(tabsEl, barGrow); else if (tabsEl.parentNode === barEl) { if (tabsHome) tabsHome.before(tabsEl); else $('.app').append(tabsEl); } }
     statusEl.title = compact ? statusEl.textContent : '';
   }
   wideBar.addEventListener?.('change', placeChrome);
-  // In the slim row a long status is cut with an ellipsis; its tooltip keeps the full text.
-  new MutationObserver(() => { statusEl.title = switchOn('compact-header') ? statusEl.textContent : ''; statusEl.classList.toggle('is-count', / visible events · /.test(statusEl.textContent)); })
-    .observe(statusEl, { childList: true, characterData: true, subtree: true });
   async function loadSwitches() {
+    const was = JSON.stringify(switches);
     try {
-      const r = await fetch(new URL('api/switches', location.href).pathname, { cache: 'no-store' });
+      const r = await fetch(new URL('api/switches', location.href).pathname, { cache: 'no-store', headers: SW_HEAD });
       if (r.ok) switches = (await r.json()).switches || [];
     } catch { /* keep the last known switches (off by default) */ }
     placeChrome();
+    if (was !== JSON.stringify(switches) && doc && mode !== 'month') renderTime();
   }
   async function toggleSwitch(btn) {
     const id = btn.dataset.switch, on = !switchOn(id);
     btn.disabled = true;
     try {
-      const r = await fetch(new URL('api/switches', location.href).pathname, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Wizard-Switch': '1' }, body: JSON.stringify({ id, on }) });
+      const r = await fetch(new URL('api/switches', location.href).pathname, { method: 'POST', headers: { ...SW_HEAD, 'Content-Type': 'application/json' }, body: JSON.stringify({ id, on }) });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.error || `Request failed (${r.status})`);
       switches = d.switches || switches;
@@ -352,22 +577,33 @@
   }
   const switchRows = () => switches.map((x) => `<button class="cal${x.on ? '' : ' off'}" data-switch="${esc(x.id)}" role="switch" aria-checked="${!!x.on}"><span class="nm">${esc(x.name)}<small>${esc(x.description || '')}</small></span><span class="sw"></span></button>`).join('');
 
-  // Connected accounts hold all Google authorization; private iCal links are submitted once and never rendered back.
+  // Settings: Connected accounts + Agent access (settings.js, Mail's and Messenger's design), then private iCal links
+  // and the snapshot (read-only). The private iCal URL is submitted once and never rendered back into the page.
+  const SHEET_TOP = '<div class="sh-top"><span class="grab"></span><button class="x" data-close aria-label="Close">✕</button></div>';
   function openCals() {
-    const sources = doc?.connected || [];
-    const iCalIds = new Set(sources.map(source => source.id));
-    const groups = new Map();
-    for (const c of doc?.calendars || []) {
-      const account = c.account || (iCalIds.has(c.id) ? 'Google iCal' : '');
-      if (!groups.has(account)) groups.set(account, []);
-      groups.get(account).push(c);
-    }
-    const list = [...groups].map(([account, cals]) => (account ? `<div class="sec">${esc(account)}</div>` : '') + cals.map(c => `<button class="cal${c.ok ? '' : ' bad'}${c.hidden ? ' off' : ''}" data-vis="${esc(c.id)}" role="switch" aria-checked="${!c.hidden}"><i style="background:${esc(c.color)}"></i><span class="nm">${esc(c.name)}<small>${c.hidden ? 'Hidden' : c.ok ? `${c.count} events` : 'Sync failed'}</small>${c.error ? `<small class="err">${esc(c.error)}</small>` : ''}</span><span class="sw"></span></button>`).join('')).join('');
-    const sourceRows = sources.map(source => `<div class="source"><span class="nm">${esc(source.name)}<small>${source.error ? esc(source.error) : source.lastSyncedAt ? `Updated ${esc(fmtSynced(source.lastSyncedAt))}` : 'Google iCal'}</small></span><button class="remove" data-remove-source="${esc(source.id)}">Remove</button></div>`).join('');
-    const lastSync = doc?.sync?.last_success || doc?.syncedAt;
-    $('[data-sheet]').innerHTML = `<div class="sh-top"><span class="grab"></span><button class="x" data-close aria-label="Close">✕</button></div><h2>Settings</h2><p class="note">Calendar is read-only. It shows Google calendars from Connected accounts and private Google iCal links.</p><div class="sync"><span>${lastSync ? `Last sync ${esc(fmtSynced(lastSync))}` : 'Not synced yet'}${doc?.sync ? ` · every ${esc(doc.sync.interval_minutes || 10)} min` : ''}</span><button class="btn wz-button" data-sync>Sync now</button></div><section data-sync-section><div class="sec">Connected accounts</div>${(doc?.sync?.accounts || []).map(a => `<p class="note">${esc(a.email)} · ${a.calendar_allowed ? esc(a.status) : 'Calendar permission needed'}</p>`).join('') || '<p class="note">No linked accounts yet.</p>'}<p class="note">${esc(doc?.sync?.state === 'ok' ? 'Read-only sync is connected.' : setupMessages[doc?.sync?.state] || 'Read-only sync is connected.')}</p>${setupLink()}${doc?.sync?.last_error ? `<p class="msg err" role="alert">${esc(doc.sync.last_error)}</p>` : ''}<p class="note">Snapshot source: ${doc?.source === 'connected_accounts' ? 'Connected accounts' : doc?.source === 'manual_import' ? 'Manual import' : sources.length ? 'Google iCal' : 'Empty'}</p></section><div class="sec">Your Google iCal calendars</div>${sourceRows || '<p class="note">No Google iCal calendars added.</p>'}<div class="sec">Add calendar</div><label class="field">Calendar name<input type="text" data-source-name maxlength="300" autocomplete="off" placeholder="Personal"></label><label class="field">Google iCal link<input type="text" data-source-url maxlength="4096" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://calendar.google.com/…/basic.ics"></label><p class="note">Use the private iCal link from Google Calendar settings. Anyone with that link can read the calendar, so it stays private on this Wizard.</p><button class="btn" data-add-source>Add calendar</button><div class="sec">Visible calendars</div>${list || '<p class="note">Connect Google above, add an iCal link, or import a manual snapshot below.</p>'}${switches.length ? `<div class="sec">Try changes</div>${switchRows()}` : ''}<div class="sec">Advanced</div><p class="note">Snapshot import replaces the local snapshot, not your Google calendar. Saved iCal links stay and return on the next sync; the next Connected accounts sync replaces imported data again when linked. Export a backup first if needed. Only import files you intend to show here.</p><input type="file" data-import accept="application/json,.json" aria-label="Import snapshot JSON"><a class="btn" href="api/export" download="calendar-snapshot.json">Export snapshot</a><div class="msg" data-c-msg role="status"></div>`;
+    const list = (doc?.calendars || []).filter(c => !c.live).map(c => `<button class="cal${c.hidden ? ' off' : ''}" data-vis="${esc(c.id)}" role="switch" aria-checked="${!c.hidden}"><i style="background:${esc(c.color)}"></i><span class="nm">${esc(c.name)}<small>${c.hidden ? 'Hidden' : `${c.count} events`}</small></span><span class="sw"></span></button>`).join('');
+    const sources = (doc?.connected || []).map(source => `<div class="source"><span class="nm">${esc(source.name)}<small>${source.error ? esc(source.error) : source.lastSyncedAt ? `Updated ${esc(fmtSynced(source.lastSyncedAt))}` : 'Google iCal'}</small></span><button class="remove" data-remove-source="${esc(source.id)}">Remove</button></div>`).join('');
+    const sync = (doc?.connected || []).length ? `<div class="sync"><span>${doc?.syncedAt ? `Updated ${esc(fmtSynced(doc.syncedAt))}` : 'Not updated yet'}</span><button class="btn" data-sync>Sync now</button></div>` : '';
+    $('[data-sheet]').innerHTML = `${SHEET_TOP}<h2>Settings</h2><div class="wcs" data-wcs></div>
+      <h3 class="wcs-h">Private iCal links</h3><p class="note">Read-only. Anyone with the link can read that calendar, so it stays private on this Wizard.</p>${sync}${sources}
+      <label class="field">Calendar name<input type="text" data-source-name maxlength="300" autocomplete="off" placeholder="Personal"></label><label class="field">Google iCal link<input type="text" data-source-url maxlength="4096" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://calendar.google.com/…/basic.ics"></label><button class="btn" data-add-source>Add link</button>
+      ${list ? `<h3 class="wcs-h">Shown calendars</h3>${list}` : ''}
+      ${switches.length ? `<h3 class="wcs-h">Try changes</h3>${switchRows()}` : ''}
+      <h3 class="wcs-h">Snapshot</h3><p class="note">Importing replaces the current snapshot, not your Google calendar. Saved iCal links come back on the next sync.</p><input type="file" data-import accept="application/json,.json" aria-label="Import snapshot JSON"><a class="btn" href="api/export" download="calendar-snapshot.json">Export snapshot</a><div class="msg" data-c-msg role="status"></div>`;
     showSheet();
     if (!sheetOpen) { sheetOpen = true; sheetBack = WizardApp.back.push(() => { closeSheet(); return true; }); }
+    if (window.WizardCalendarSettings && window.WizardConnect && window.WizardConnect.client) {
+      window.WizardCalendarSettings.render($('[data-wcs]'), {
+        say, accounts: () => doc?.accounts || [], connect: (source) => connect(source, true), home: openCals,
+        changed: async () => { range = null; await load(false).catch(() => {}); },
+        page: (title, nodes) => {
+          $('[data-sheet]').innerHTML = `${SHEET_TOP}<h2></h2><div class="wcs" data-wcs-page></div><div class="msg" data-c-msg role="status"></div>`;
+          $('[data-sheet] h2').textContent = title;
+          $('[data-wcs-page]').append(...nodes);
+          $('[data-sheet]').scrollTop = 0;
+        },
+      });
+    }
   }
 
   async function post(path, body) {
@@ -406,6 +642,8 @@
     finally { hold.release(); }
   }
 
+  // The shell's toast (WizardApp.shell.toast); the sheet's message line when there is no shell.
+  const toast = (t) => { let shown = false; try { shown = !!WizardApp.shell?.toast?.('✓', t); } catch (_) { /* standalone */ } if (!shown) { const s = $('[data-status]'); s.classList.remove('wc-sr'); s.hidden = false; s.textContent = t; s.dataset.toastUntil = Date.now() + 4000; } };
   const say = (t, ok) => { const m = $('[data-c-msg]'); if (m) { m.className = `msg ${ok ? 'ok' : 'err'}`; m.textContent = t; } };
 
   document.addEventListener('change', async event => {
@@ -436,6 +674,15 @@
     if (!t) return;
     if (t.matches('[data-sheet-back], [data-close]')) return closeSheet();
     if (t.matches('[data-add-source]')) return addSource(t);
+    if (t.dataset.sgApprove) return decide(t, true);
+    if (t.dataset.sgDismiss) return decide(t, false);
+    if (t.matches('[data-sg-open]')) return openSuggestions();
+    if (t.dataset.connect) return connect(t.dataset.connect);
+    if (t.dataset.fix) return WizardApp.nav?.openApp ? WizardApp.nav.openApp(`wizard-${t.dataset.fix}`) : connect(t.dataset.fix);
+    if (t.matches('[data-new]')) return openForm(null, { day: sel });
+    if (t.dataset.rsvp) return rsvp(t);
+    if (t.dataset.edit) { const e = evById(t.dataset.edit); return e && openForm(e); }
+    if (t.dataset.del) return del(t);
     if (t.dataset.removeSource) return removeSource(t);
     if (t.dataset.vis) return toggleCal(t);
     if (t.dataset.switch) return toggleSwitch(t);
@@ -448,19 +695,18 @@
     }
     if (t.matches('[data-today-btn]')) return goToday();
     if (t.matches('[data-sync]')) return syncNow(t);
-    if (mode !== 'month' && t.matches('[data-prev], [data-next-month]')) {
-      const dir = t.matches('[data-prev]') ? -1 : 1, tk = todayKey();
-      sel = addDays(sel, dir * (mode === 'week' ? 7 : 1));
-      if (wkStart) wkStart = addDays(wkStart, dir * (mode === 'week' ? 7 : 1));
-      if (mode === 'week' && weekStart(sel) === weekStart(tk)) sel = tk;
-      needScroll = true; return renderTime();
+    if (t.dataset.step && mode === 'week') return stepWeek(+t.dataset.step);
+    if (mode === 'week' && t.matches('[data-prev], [data-next-month]')) return stepWeek(t.matches('[data-prev]') ? -1 : 1);
+    if (mode === 'day' && t.matches('[data-prev], [data-next-month]')) {
+      sel = addDays(sel, t.matches('[data-prev]') ? -1 : 1);
+      needScroll = true; renderTime(); return ensureRange();
     }
     if (t.matches('[data-prev], [data-next-month]')) {
       const d = new Date(Date.UTC(view[0], view[1] + (t.matches('[data-prev]') ? -1 : 1), 1));
       view = [d.getUTCFullYear(), d.getUTCMonth()];
       sel = keyOf(new Date(Date.UTC(view[0], view[1], 1, 12)));
       if (sel.slice(0, 7) === todayKey().slice(0, 7)) sel = todayKey();
-      renderGrid(); renderAgenda(); return;
+      renderGrid(); renderAgenda(); return ensureRange();
     }
     if (t.matches('[data-cals]')) return openCals();
 
@@ -481,121 +727,103 @@
     if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) $(dx < 0 ? '[data-next-month]' : '[data-prev]').click();
   }, { passive: true });
 
+  // Tap an empty spot in Day/Week to add an event there (connected calendars only).
+  $('[data-tin]').addEventListener('click', (ev) => {
+    const col = ev.target.closest('.col');
+    if (!col || ev.target.closest('button') || !liveCals().length) return;
+    const y = ev.clientY - col.getBoundingClientRect().top;
+    openForm(null, { day: col.dataset.col, mins: Math.max(0, Math.min(23 * 60, Math.floor(y / HOUR * 2) * 30)) });
+  });
+
   // Horizontal swipe on the time grid changes week/day.
   let tx = null, ty = null;
   $('[data-time]').addEventListener('touchstart', (e) => { tx = e.touches[0].clientX; ty = e.touches[0].clientY; }, { passive: true });
   $('[data-time]').addEventListener('touchend', (e) => {
     if (tx == null) return;
     const dx = e.changedTouches[0].clientX - tx, dy = e.changedTouches[0].clientY - ty; tx = null;
-    if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) $(dx < 0 ? '[data-next-month]' : '[data-prev]').click();
+    if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+      if (mode === 'week') return stepWeek(dx < 0 ? 7 : -7); // swipes still turn a whole week
+      $(dx < 0 ? '[data-next-month]' : '[data-prev]').click();
+    }
   }, { passive: true });
-
-  // Trackpad day swipe (switch trackpad-swipe, issue 21). Sideways wheel deltas (two-finger swipe, or Shift + wheel)
-  // move the Day/Week grid with the fingers; when the gesture goes quiet it settles on the nearest day. Mostly vertical
-  // wheels are left alone so the hours still scroll. Reduced motion: no following, just jump by the swiped days.
-  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
-  const PAN_IDLE = 140;
-  let vUntil = 0;
-  const tgEl = $('[data-time]');
-  const panStep = () => ($('.tg-cols')?.clientWidth || 1) / (mode === 'week' ? 7 : 1);
-  const setDx = (px) => tgEl.style.setProperty('--dx', `${px}px`);
-  function shiftDays(k) {
-    if (!k) return;
-    if (mode === 'week') wkStart = addDays(windowStart(), k);
-    sel = addDays(sel, k);
-    renderTime();
-  }
-  function settle() {
-    if (!pan) return;
-    clearTimeout(pan.timer);
-    const step = panStep(), q = -pan.dx / step;
-    // Snap to the nearest day; a deliberate nudge (a third of a day) already counts as one.
-    const k = Math.sign(q) * Math.floor(Math.abs(q) + 0.67);
-    if (reducedMotion.matches || pan.snapping) { finish(k); return; }
-    pan.snapping = true; pan.k = k;
-    tgEl.classList.add('is-snap'); setDx(-k * step);
-    pan.timer = setTimeout(() => finish(k), 230);
-  }
-  function finish(k) {
-    if (!pan) return;
-    clearTimeout(pan.timer); pan = null;
-    tgEl.classList.remove('is-snap', 'is-panning'); setDx(0);
-    shiftDays(k);
-  }
-  tgEl.addEventListener('wheel', (e) => {
-    if (!swipeOn() || mode === 'month' || tgEl.hidden || sheetOpen) return;
-    const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? tgEl.clientWidth : 1;
-    let x = e.deltaX * unit, y = e.deltaY * unit;
-    if (e.shiftKey && !x) { x = y; y = 0; }
-    const t = performance.now();
-    if (pan?.snapping) finish(pan.k); // a new gesture during the settle: land first, then start again
-    if (!pan) {
-      // A vertical scroll keeps its axis until it goes quiet, so drifting fingers never page the calendar.
-      if (t < vUntil || Math.abs(x) <= Math.abs(y) * 1.2 || Math.abs(x) < 1) { vUntil = t + PAN_IDLE; return; }
-      pan = { dx: 0 };
-      tgEl.classList.add('is-panning');
-    }
-    e.preventDefault();
-    clearTimeout(pan.timer);
-    pan.dx -= x;
-    const step = panStep(), room = (panBuf() - 1) * step;
-    if (Math.abs(pan.dx) > room) { // long swipe: move the window, keep the offset, so more days stay drawn
-      const k = Math.trunc(-pan.dx / step);
-      pan.dx += k * step;
-      shiftDays(k);
-    }
-    if (!reducedMotion.matches) setDx(pan.dx);
-    pan.timer = setTimeout(settle, PAN_IDLE);
-  }, { passive: false });
 
   async function syncNow(btn) {
     btn.disabled = true; btn.textContent = 'Syncing…';
     try {
-      // Connected accounts refresh in the background (the reply carries its state); iCal links refresh before the reply.
       const result = await post('api/sync', {});
-      if (result.state !== undefined) {
-        for (let i = 0; i < 120; i++) {
-          await new Promise(resolve => setTimeout(resolve, 1000));
-          const response = await fetch(new URL('api/sync', location.href).pathname, {cache:'no-store'});
-          if (!response.ok) throw new Error('Unable to read sync status.');
-          if (!(await response.json()).syncing) break;
-        }
-      }
       await load(false);
       if (sheetOpen) {
         openCals();
-        if (result.state === undefined && result.syncing) say('A calendar sync is already running.');
-        else if (result.failed) say(`${result.failed} calendar failed to sync.`);
-        else if (!doc?.sync?.last_error) say('Calendars updated.', true);
+        if (result.syncing) say('A calendar sync is already running.');
+        else say(result.failed ? `${result.failed} calendar failed to sync.` : 'Calendars updated.', !result.failed);
       }
-    } catch (e) { say(e.message); }
-    finally { btn.disabled = false; btn.textContent = 'Sync now'; }
+    } catch (e) { btn.disabled = false; btn.textContent = 'Sync now'; say(e.message); }
   }
 
+  // The live window follows the view: about two weeks before the shown month to two months after.
+  function wanted() {
+    const k = sel || todayKey(), first = `${k.slice(0, 7)}-01`;
+    return [addDays(first, -21), addDays(first, 70)];
+  }
+  function ensureRange() {
+    if (!range || !sel) return;
+    const k = mode === 'month' ? `${(view ? `${view[0]}-${pad(view[1] + 1)}` : sel.slice(0, 7))}-15` : sel;
+    if (!loading && (addDays(k, -14) < range[0] || addDays(k, 21) > range[1])) { loading = load(false).catch(() => {}).finally(() => { loading = null; }); }
+  }
   async function load(refresh) {
     try {
-      const r = await fetch(API + (refresh ? '?refresh=1' : ''), { cache: 'no-store' });
+      const [from, to] = wanted();
+      // X-Wizard-Request marks the owner's own page: Calendar then reads with its grant and lists the agents' suggestions.
+      const r = await fetch(`${API}?from=${from}&to=${to}${refresh ? '&refresh=1' : ''}`, { cache: 'no-store', credentials: 'same-origin', headers: { 'X-Wizard-Request': 'calendar' } });
       if (!r.ok) throw new Error(`Load failed (${r.status})`);
       const d = await r.json();
-      TZ = d.display_timezone || browserTZ;
-      doc = d;
+      if (d.timezone) TZ = d.timezone;
+      doc = d; range = d.liveRange || null; sgGen++;
       if (!sel) sel = todayKey();
       if (!view) view = [+sel.slice(0, 4), +sel.slice(5, 7) - 1];
       render();
       if (refresh && d.syncing) { await new Promise((ok) => setTimeout(ok, 2500)); return load(false); }
     } catch (err) {
-      $('[data-status]').textContent = 'Unable to load calendar. Open Settings and Sync now to retry.';
+      $('[data-status]').textContent = 'Unable to load calendar. Open Settings and Sync now to retry.'; $('[data-status]').classList.remove('wc-sr'); $('[data-status]').hidden = false;
       $('[data-foot]').textContent = 'Unable to load calendar. Open Settings and Sync now to retry.';
       throw err;
     }
   }
+
+  // Trackpad day swipe (switch trackpad-swipe, issue 21). Sideways wheel deltas (two-finger swipe, or Shift + wheel)
+  // move Day and Week one day per column width swiped; mostly vertical wheels are left alone so the hours still scroll.
+  const tgEl = $('[data-time]');
+  let swipeAcc = 0, swipeTimer = 0, vUntil = 0;
+  function shiftDay(k) {
+    if (mode === 'week') return stepWeek(k);
+    sel = addDays(sel, k); needScroll = true; renderTime(); ensureRange();
+  }
+  tgEl.addEventListener('wheel', (e) => {
+    if (!switchOn('trackpad-swipe') || mode === 'month' || tgEl.hidden || sheetOpen) return;
+    const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? tgEl.clientWidth : 1;
+    let x = e.deltaX * unit, y = e.deltaY * unit;
+    if (e.shiftKey && !x) { x = y; y = 0; }
+    const t = performance.now();
+    if (!swipeAcc && (t < vUntil || Math.abs(x) <= Math.abs(y) * 1.2 || Math.abs(x) < 1)) { vUntil = t + 140; return; }
+    e.preventDefault();
+    swipeAcc += x;
+    const step = Math.max(40, ($('.tg-cols')?.clientWidth || 280) / (mode === 'week' ? 7 : 3));
+    while (Math.abs(swipeAcc) >= step) { const k = Math.sign(swipeAcc); swipeAcc -= k * step; shiftDay(k); }
+    clearTimeout(swipeTimer);
+    swipeTimer = setTimeout(() => { if (Math.abs(swipeAcc) >= step / 3) shiftDay(Math.sign(swipeAcc)); swipeAcc = 0; }, 140);
+  }, { passive: false });
 
   sel = null; view = null;
   applyMode();
   renderTodayBtn();
   loadSwitches();
   load(false).catch(() => {});
-  setInterval(() => { renderTodayBtn(); if (doc && mode !== 'month' && !pan) renderTime(); }, 60e3);
+  setInterval(() => { renderTodayBtn(); if (doc && mode !== 'month') renderTime(); }, 60e3);
+  // Window resized (phone rotated, window tiled/maximised): refit the 24 hours.
+  new ResizeObserver(() => { if (doc && mode !== 'month' && fitHour() !== HOUR) renderTime(); }).observe($('[data-tbody]'));
   WizardApp.theme.onChange(() => { if (doc) render(); });
   document.addEventListener('visibilitychange', () => { if (!document.hidden) { loadSwitches(); load(false).catch(() => {}); } });
+  window.addEventListener('focus', () => { loadSwitches(); });
+  window.addEventListener('focus', () => { refreshSugg(); });
+  setInterval(refreshSugg, 30e3);
 })();
