@@ -16,7 +16,10 @@ compose = {'services': {'wizard-calendar': {
         'ICAL_SYNC_INTERVAL': '${ICAL_SYNC_INTERVAL:-900}',
         'WIZARD_TRUSTED_HOSTS': '${WIZARD_TRUSTED_HOSTS:-}',
         'WIZARD_TRUSTED_ORIGINS': '${WIZARD_TRUSTED_ORIGINS:-}',
-        'WIZARD_LOCAL_HOSTS': '127.0.0.1:${APP_PORT},localhost:${APP_PORT},wizard-calendar:8799'},
+        'WIZARD_LOCAL_HOSTS': '127.0.0.1:${APP_PORT},localhost:${APP_PORT},wizard-calendar:8799',
+        'WIZARD_SHELL_AUTH': '${WIZARD_SHELL_AUTH:-tailscale-serve}',
+        'WIZARD_OWNER_LOGINS': '${WIZARD_OWNER_LOGINS:-}',
+        'WIZARD_GRANTS_FILE': '/wizard/grants.json'},
     'volumes': ['${APP_SOURCE_DIR}:/app:ro', '${APP_DATA_DIR}/data:/data'],
     'command': ['python', 'app/server.py'],
     'x-runtipi': {'is_main': True, 'internal_port': 8799}
