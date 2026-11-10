@@ -236,3 +236,18 @@ html[data-compact-header] .tg-in { margin-top: 6px; }
   html[data-compact-header] .nav { width: 34px; height: 34px; }
   html[data-compact-header] .bar .tabs button { height: 30px; }
 }
+
+/* ---- Trackpad day swipe (switch trackpad-swipe, off by default; issue 21) ----
+   Each day row (heads in Week, all-day lanes, columns) clips a wider .pan track holding --buf extra days each side.
+   The track is shifted back by --buf days and follows the fingers by --dx. */
+.tg.is-pan .days:not(.is-strip), .tg.is-pan .lanes, .tg.is-pan .tg-cols { display: block; overflow-x: hidden; }
+.tg.is-pan .days:not(.is-strip) { --gap: 2px; }
+.tg.is-pan .lanes { --gap: 2px; }
+.tg.is-pan .tg-cols { --gap: 0px; }
+.tg.is-pan .pan { display: grid; grid-template-columns: repeat(var(--tn), minmax(0, 1fr)); gap: var(--gap); height: 100%;
+  width: calc((100% + var(--gap)) * var(--tn) / var(--n) - var(--gap));
+  transform: translateX(calc((100% + var(--gap)) * var(--buf) / var(--tn) * -1 + var(--dx, 0px))); }
+.tg.is-pan .lanes .pan { height: auto; grid-auto-rows: 22px; }
+.tg.is-panning .pan { will-change: transform; }
+.tg.is-snap .pan { transition: transform .22s var(--ease); }
+@media (prefers-reduced-motion: reduce) { .tg.is-snap .pan { transition: none; } }

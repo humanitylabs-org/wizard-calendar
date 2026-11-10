@@ -156,9 +156,11 @@ POST needs the box's own `Origin`, `X-Wizard-Switch: 1` and a JSON body `{"id": 
 | Switch | Name | What it does |
 |---|---|---|
 | `compact-header` | Compact top bar | One slim header row (date, navigation, status, view switcher on wide windows, Today, Settings) so Day and Week show about 1.3 to 2.3 more hours without scrolling. |
+| `trackpad-swipe` | Trackpad day swipe | In Day and Week, a two-finger sideways swipe on a trackpad (or Shift + mouse wheel) moves the grid with the fingers and settles on the nearest day, like Mac Calendar. Swipe left goes forward, right goes back; a longer or faster swipe moves several days. Week becomes a sliding 7-day window (Today and switching view return it to Monday first). Vertical scrolling through the hours is unchanged; with reduced motion it jumps instead of gliding. |
 
 `qa/compact_header.cjs` measures the visible hours with the switch off and on at 320, 390, 700 and
-1280 px and checks every header control stays fully on screen.
+1280 px and checks every header control stays fully on screen. `qa/trackpad_swipe.cjs` sends real
+wheel events (switch off and on, Week and Day, long swipes, vertical scroll, Shift + wheel, reduced motion).
 
 Run `python3 qa/headless.py` for the stdlib suites (data init, worker, Connected accounts
 sync with a fake provider, iCal parsing/sources/HTTP, coexistence, API). `qa/sync.py` is the
