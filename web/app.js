@@ -535,7 +535,47 @@
     document.querySelector('[data-status]').textContent = 'Wizard core is missing. Follow the standalone setup in README.md.';
     return;
   }
-  WizardApp.ready({ name: 'Calendar', version: '0.3.6' });
+  WizardApp.ready({ name: 'Calendar', version: '0.3.7' });
+
+  // Owner feature switches (GET/POST api/switches, wizard.app-switches/1). All off by default; the Tracker's Try it
+  // flips the same box state, so this page re-reads them whenever it becomes visible.
+  let switches = [];
+  const switchOn = (id) => !!switches.find((x) => x.id === id)?.on;
+  const SW_HEAD = { 'X-Wizard-Request': 'calendar', 'X-Wizard-Switch': '1' };
+  const wideBar = window.matchMedia('(min-width: 640px)');
+  const barEl = $('.bar'), barGrow = $('.bar .grow'), statusEl = $('[data-status]'), tabsEl = $('.app > .tabs');
+  const statusHome = statusEl.nextElementSibling, tabsHome = tabsEl && tabsEl.nextElementSibling;
+  // Compact top bar (issue 20): the status line joins the header row, and on wide windows so does the view switcher.
+  function placeChrome() {
+    const compact = switchOn('compact-header');
+    document.documentElement.toggleAttribute('data-compact-header', compact);
+    if (compact) barEl.insertBefore(statusEl, barGrow); else if (statusEl.parentNode === barEl) statusHome.before(statusEl);
+    if (tabsEl) { if (compact && wideBar.matches) barEl.insertBefore(tabsEl, barGrow); else if (tabsEl.parentNode === barEl) { if (tabsHome) tabsHome.before(tabsEl); else $('.app').append(tabsEl); } }
+    statusEl.title = compact ? statusEl.textContent : '';
+  }
+  wideBar.addEventListener?.('change', placeChrome);
+  async function loadSwitches() {
+    const was = JSON.stringify(switches);
+    try {
+      const r = await fetch(new URL('api/switches', location.href).pathname, { cache: 'no-store', headers: SW_HEAD });
+      if (r.ok) switches = (await r.json()).switches || [];
+    } catch { /* keep the last known switches (off by default) */ }
+    placeChrome();
+    if (was !== JSON.stringify(switches) && doc && mode !== 'month') renderTime();
+  }
+  async function toggleSwitch(btn) {
+    const id = btn.dataset.switch, on = !switchOn(id);
+    btn.disabled = true;
+    try {
+      const r = await fetch(new URL('api/switches', location.href).pathname, { method: 'POST', headers: { ...SW_HEAD, 'Content-Type': 'application/json' }, body: JSON.stringify({ id, on }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || `Request failed (${r.status})`);
+      switches = d.switches || switches;
+      placeChrome(); if (doc) render();
+      if (sheetOpen) openCals();
+    } catch (e) { btn.disabled = false; say(e.message); }
+  }
+  const switchRows = () => switches.map((x) => `<button class="cal${x.on ? '' : ' off'}" data-switch="${esc(x.id)}" role="switch" aria-checked="${!!x.on}"><span class="nm">${esc(x.name)}<small>${esc(x.description || '')}</small></span><span class="sw"></span></button>`).join('');
 
   // Settings: Connected accounts + Agent access (settings.js, Mail's and Messenger's design), then private iCal links
   // and the snapshot (read-only). The private iCal URL is submitted once and never rendered back into the page.
@@ -548,6 +588,7 @@
       <h3 class="wcs-h">Private iCal links</h3><p class="note">Read-only. Anyone with the link can read that calendar, so it stays private on this Wizard.</p>${sync}${sources}
       <label class="field">Calendar name<input type="text" data-source-name maxlength="300" autocomplete="off" placeholder="Personal"></label><label class="field">Google iCal link<input type="text" data-source-url maxlength="4096" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://calendar.google.com/…/basic.ics"></label><button class="btn" data-add-source>Add link</button>
       ${list ? `<h3 class="wcs-h">Shown calendars</h3>${list}` : ''}
+      ${switches.length ? `<h3 class="wcs-h">Try changes</h3>${switchRows()}` : ''}
       <h3 class="wcs-h">Snapshot</h3><p class="note">Importing replaces the current snapshot, not your Google calendar. Saved iCal links come back on the next sync.</p><input type="file" data-import accept="application/json,.json" aria-label="Import snapshot JSON"><a class="btn" href="api/export" download="calendar-snapshot.json">Export snapshot</a><div class="msg" data-c-msg role="status"></div>`;
     showSheet();
     if (!sheetOpen) { sheetOpen = true; sheetBack = WizardApp.back.push(() => { closeSheet(); return true; }); }
@@ -644,6 +685,7 @@
     if (t.dataset.del) return del(t);
     if (t.dataset.removeSource) return removeSource(t);
     if (t.dataset.vis) return toggleCal(t);
+    if (t.dataset.switch) return toggleSwitch(t);
     if (t.dataset.ev) return openSheet(t.dataset.ev);
     if (t.dataset.day) return select(t.dataset.day, true);
     if (t.dataset.mode) return setMode(t.dataset.mode);
@@ -748,15 +790,40 @@
     }
   }
 
+  // Trackpad day swipe (switch trackpad-swipe, issue 21). Sideways wheel deltas (two-finger swipe, or Shift + wheel)
+  // move Day and Week one day per column width swiped; mostly vertical wheels are left alone so the hours still scroll.
+  const tgEl = $('[data-time]');
+  let swipeAcc = 0, swipeTimer = 0, vUntil = 0;
+  function shiftDay(k) {
+    if (mode === 'week') return stepWeek(k);
+    sel = addDays(sel, k); needScroll = true; renderTime(); ensureRange();
+  }
+  tgEl.addEventListener('wheel', (e) => {
+    if (!switchOn('trackpad-swipe') || mode === 'month' || tgEl.hidden || sheetOpen) return;
+    const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? tgEl.clientWidth : 1;
+    let x = e.deltaX * unit, y = e.deltaY * unit;
+    if (e.shiftKey && !x) { x = y; y = 0; }
+    const t = performance.now();
+    if (!swipeAcc && (t < vUntil || Math.abs(x) <= Math.abs(y) * 1.2 || Math.abs(x) < 1)) { vUntil = t + 140; return; }
+    e.preventDefault();
+    swipeAcc += x;
+    const step = Math.max(40, ($('.tg-cols')?.clientWidth || 280) / (mode === 'week' ? 7 : 3));
+    while (Math.abs(swipeAcc) >= step) { const k = Math.sign(swipeAcc); swipeAcc -= k * step; shiftDay(k); }
+    clearTimeout(swipeTimer);
+    swipeTimer = setTimeout(() => { if (Math.abs(swipeAcc) >= step / 3) shiftDay(Math.sign(swipeAcc)); swipeAcc = 0; }, 140);
+  }, { passive: false });
+
   sel = null; view = null;
   applyMode();
   renderTodayBtn();
+  loadSwitches();
   load(false).catch(() => {});
   setInterval(() => { renderTodayBtn(); if (doc && mode !== 'month') renderTime(); }, 60e3);
   // Window resized (phone rotated, window tiled/maximised): refit the 24 hours.
   new ResizeObserver(() => { if (doc && mode !== 'month' && fitHour() !== HOUR) renderTime(); }).observe($('[data-tbody]'));
   WizardApp.theme.onChange(() => { if (doc) render(); });
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) load(false).catch(() => {}); });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { loadSwitches(); load(false).catch(() => {}); } });
+  window.addEventListener('focus', () => { loadSwitches(); });
   window.addEventListener('focus', () => { refreshSugg(); });
   setInterval(refreshSugg, 30e3);
 })();

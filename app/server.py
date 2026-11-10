@@ -36,7 +36,7 @@ SYNC_INTERVAL = max(0, int(os.environ.get('ICAL_SYNC_INTERVAL', '900')))
 MAX_BYTES = 4 * 1024 * 1024
 MAX_SOURCES = 20
 WEB = {'index.html', 'app.js', 'app.css', 'icon.svg', 'connect.js', 'settings.js'}
-VERSION = '0.3.6'
+VERSION = '0.3.7'
 # The owner: the Wizard shell's Tailscale login (one login, and his when WIZARD_OWNER_LOGINS names it). Owner routes are
 # refused on the box-local hosts (agents) unless a scratch QA server opts into a loopback single-owner dev mode.
 SHELL_AUTH = os.environ.get('WIZARD_SHELL_AUTH', 'tailscale-serve')
@@ -47,6 +47,36 @@ GRANTS_FILE = os.environ.get('WIZARD_GRANTS_FILE', '/wizard/grants.json')
 LIVE = None if os.environ.get('CALENDAR_LIVE', 'on') == 'off' else live.Live(live.parse_sources(os.environ.get('CALENDAR_SOURCES')),
                                                                               grants_file=GRANTS_FILE)
 LIVE_WINDOW = (-45, 120)  # days around today when a caller does not ask for a range
+# Owner feature switches (wizard.app-switches/1, wizard-os docs/APP_SWITCHES.md). Off by default; the state lives on
+# the box in DATA/switches.json, so this page, the Tracker's Try it (through the App Manager) and the agent see one state.
+SWITCHES = [
+    {'id': 'compact-header', 'name': 'Compact top bar',
+     'description': 'Slimmer header: the status line joins the top row (and the view switcher on wide windows), so the time grid shows more hours.',
+     'default': False, 'issues': ['humanitylabs-org/wizard-calendar#20']},
+    {'id': 'trackpad-swipe', 'name': 'Trackpad day swipe',
+     'description': 'In Day and Week, a two-finger sideways swipe (or Shift + mouse wheel) moves the calendar one day at a time, like Mac Calendar.',
+     'default': False, 'issues': ['humanitylabs-org/wizard-calendar#21']},
+]
+
+
+def _saved_switches():
+    try: saved = _read_json(DATA / 'switches.json', {})
+    except (OSError, ValueError): saved = {}  # unreadable state falls back to the defaults (off)
+    return saved if isinstance(saved, dict) else {}
+
+
+def switches_doc():
+    saved = _saved_switches()
+    return {'contract': 'wizard.app-switches/1', 'switches': [
+        dict(s, on=saved[s['id']] if isinstance(saved.get(s['id']), bool) else s['default']) for s in SWITCHES]}
+
+
+def set_switch(switch_id, on):
+    with LOCK:
+        saved = {k: v for k, v in _saved_switches().items() if k in {s['id'] for s in SWITCHES} and isinstance(v, bool)}
+        saved[switch_id] = on
+        _save_path(DATA / 'switches.json', saved)
+    return switches_doc()
 
 
 def empty():
@@ -438,10 +468,13 @@ class Handler(BaseHTTPRequestHandler):
             return False
         return True
 
-    def owner(self, write=False):
-        """True for the owner's own Calendar page in the Wizard shell; never for agents (box-local hosts, bearer, no login)."""
+    def owner(self, write=False, switch=False):
+        """True for the owner's own Calendar page in the Wizard shell; never for agents (box-local hosts, bearer, no login).
+        switch=True (wizard.app-switches/1): `X-Wizard-Switch: 1` stands in for the page header, so the Tracker card and
+        the App Manager (calling through the box's Tailscale Serve, which names the owner) reach the switches too."""
         host = self.headers.get('Host') or ''
-        if self.headers.get('Authorization') or self.headers.get('X-Wizard-Request') != 'calendar':
+        marked = self.headers.get('X-Wizard-Request') == 'calendar' or (switch and self.headers.get('X-Wizard-Switch') == '1')
+        if self.headers.get('Authorization') or not marked:
             return False
         if (self.headers.get('Sec-Fetch-Site') or 'same-origin').lower() not in ('same-origin', 'none'):
             return False
@@ -489,6 +522,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self.respond({'suggestions': LIVE.pending() if LIVE is not None else []})
             except live.LiveError as exc:
                 return self.respond({'error': exc.message, 'code': exc.code}, exc.status)
+        if path == '/api/switches':
+            if not self.owner(switch=True):
+                return self.respond({'error': 'Only this Wizard’s owner can see Calendar switches.', 'code': 'owner_only'}, 403)
+            return self.respond(switches_doc())
         if path == '/api/live':
             return self.respond(LIVE.status() if LIVE is not None else {'sources': [], 'connected': False, 'needs_attention': []})
         if path == '/api/export':
@@ -510,6 +547,8 @@ class Handler(BaseHTTPRequestHandler):
         if not self.trusted():
             return
         path = self.route()
+        if path == '/api/switches':
+            return self.post_switch()
         allowed = ('/api/import', '/api/calendars/visibility', '/api/sources', '/api/sources/remove', '/api/sync', '/mcp')
         if path in LIVE_WRITES:
             return self.live_write(path)
@@ -559,6 +598,26 @@ class Handler(BaseHTTPRequestHandler):
             return self.respond({'error': str(exc)[:300]}, 400)
         except OSError:
             return self.respond({'error': 'storage_failure; previous snapshot retained'}, 500)
+
+    def post_switch(self):
+        # Owner only, from the Wizard's own origin, with X-Wizard-Switch: 1 (wizard.app-switches/1).
+        if self.headers.get('X-Wizard-Switch') != '1' or not self.owner(write=True, switch=True):
+            return self.respond({'error': 'Only this Wizard’s owner can switch Calendar.', 'code': 'owner_only'}, 403)
+        try:
+            if (self.headers.get('Content-Type') or '').split(';')[0].strip() != 'application/json': raise ValueError('json body required')
+            size = int(self.headers.get('Content-Length', '0'))
+            if size <= 0 or size > 4096: raise ValueError('body size')
+            body = json.loads(self.rfile.read(size))
+            if not isinstance(body, dict) or not isinstance(body.get('id'), str) or not isinstance(body.get('on'), bool) or set(body) - {'id', 'on'}:
+                raise ValueError('string id and boolean on are required')
+        except (ValueError, TypeError):
+            return self.respond({'error': 'Send JSON {"id": ..., "on": true|false}', 'code': 'invalid_input'}, 400)
+        if body['id'] not in {s['id'] for s in SWITCHES}:
+            return self.respond({'error': 'No such switch', 'code': 'unknown_switch'}, 404)
+        try:
+            return self.respond(set_switch(body['id'], body['on']))
+        except OSError:
+            return self.respond({'error': 'storage_failure'}, 500)
 
     def live_write(self, path):
         # Changes to the owner's real calendars: only from this app's own page (exact Origin, same-origin fetch, app header).
