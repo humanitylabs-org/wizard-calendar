@@ -146,6 +146,20 @@ OAuth callback forms, hardcoded owner zones, root history guards or local skin s
 WizardApp.nav lacks openApp; setup uses provider `setup_url` with `target=_top` as an
 EXTEND candidate. No wizard-ux/shell changes are included.
 
+## Try changes (feature switches)
+
+New Calendar features land switched off. Each one is a switch in **Settings > Try changes**, kept on
+the box per owner in `DATA_DIR/switches.json` and served at `GET/POST /wizard-calendar/api/switches`
+(`wizard.app-switches/1`, see wizardos-tracker `docs/app-switches.md`), so the Tracker card can flip it.
+POST needs the box's own `Origin`, `X-Wizard-Switch: 1` and a JSON body `{"id": "...", "on": true}`.
+
+| Switch | Name | What it does |
+|---|---|---|
+| `compact-header` | Compact top bar | One slim header row (date, navigation, status, view switcher on wide windows, Today, Settings) so Day and Week show about 1.3 to 2.3 more hours without scrolling. |
+
+`qa/compact_header.cjs` measures the visible hours with the switch off and on at 320, 390, 700 and
+1280 px and checks every header control stays fully on screen.
+
 Run `python3 qa/headless.py` for the stdlib suites (data init, worker, Connected accounts
 sync with a fake provider, iCal parsing/sources/HTTP, coexistence, API). `qa/sync.py` is the
 fake-provider contract suite (no real Google account). `qa/thales_sync.py` is the disposable

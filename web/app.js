@@ -298,6 +298,45 @@
   }
   WizardApp.ready({ name: 'Calendar', version: '0.3.0' });
 
+  // Owner feature switches (GET/POST api/switches, wizard.app-switches/1). All off by default.
+  let switches = [];
+  const switchOn = (id) => !!switches.find((x) => x.id === id)?.on;
+  const wideBar = window.matchMedia('(min-width: 640px)');
+  const bar = $('.bar'), barGrow = $('.bar .grow'), statusEl = $('[data-status]'), tabsEl = $('.tabs');
+  const statusHome = statusEl.nextElementSibling, tabsHome = tabsEl.nextElementSibling;
+  // Compact top bar (issue 20): the status line joins the header row, and on wide windows so does the view switcher.
+  function placeChrome() {
+    const compact = switchOn('compact-header');
+    document.documentElement.toggleAttribute('data-compact-header', compact);
+    if (compact) bar.insertBefore(statusEl, barGrow); else statusHome.before(statusEl);
+    if (compact && wideBar.matches) bar.insertBefore(tabsEl, barGrow); else tabsHome.before(tabsEl);
+    statusEl.title = compact ? statusEl.textContent : '';
+  }
+  wideBar.addEventListener?.('change', placeChrome);
+  // In the slim row a long status is cut with an ellipsis; its tooltip keeps the full text.
+  new MutationObserver(() => { statusEl.title = switchOn('compact-header') ? statusEl.textContent : ''; statusEl.classList.toggle('is-count', / visible events · /.test(statusEl.textContent)); })
+    .observe(statusEl, { childList: true, characterData: true, subtree: true });
+  async function loadSwitches() {
+    try {
+      const r = await fetch(new URL('api/switches', location.href).pathname, { cache: 'no-store' });
+      if (r.ok) switches = (await r.json()).switches || [];
+    } catch { /* keep the last known switches (off by default) */ }
+    placeChrome();
+  }
+  async function toggleSwitch(btn) {
+    const id = btn.dataset.switch, on = !switchOn(id);
+    btn.disabled = true;
+    try {
+      const r = await fetch(new URL('api/switches', location.href).pathname, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Wizard-Switch': '1' }, body: JSON.stringify({ id, on }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || `Request failed (${r.status})`);
+      switches = d.switches || switches;
+      placeChrome(); if (doc) render();
+      if (sheetOpen) openCals();
+    } catch (e) { btn.disabled = false; say(e.message); }
+  }
+  const switchRows = () => switches.map((x) => `<button class="cal${x.on ? '' : ' off'}" data-switch="${esc(x.id)}" role="switch" aria-checked="${!!x.on}"><span class="nm">${esc(x.name)}<small>${esc(x.description || '')}</small></span><span class="sw"></span></button>`).join('');
+
   // Connected accounts hold all Google authorization; private iCal links are submitted once and never rendered back.
   function openCals() {
     const sources = doc?.connected || [];
@@ -311,7 +350,7 @@
     const list = [...groups].map(([account, cals]) => (account ? `<div class="sec">${esc(account)}</div>` : '') + cals.map(c => `<button class="cal${c.ok ? '' : ' bad'}${c.hidden ? ' off' : ''}" data-vis="${esc(c.id)}" role="switch" aria-checked="${!c.hidden}"><i style="background:${esc(c.color)}"></i><span class="nm">${esc(c.name)}<small>${c.hidden ? 'Hidden' : c.ok ? `${c.count} events` : 'Sync failed'}</small>${c.error ? `<small class="err">${esc(c.error)}</small>` : ''}</span><span class="sw"></span></button>`).join('')).join('');
     const sourceRows = sources.map(source => `<div class="source"><span class="nm">${esc(source.name)}<small>${source.error ? esc(source.error) : source.lastSyncedAt ? `Updated ${esc(fmtSynced(source.lastSyncedAt))}` : 'Google iCal'}</small></span><button class="remove" data-remove-source="${esc(source.id)}">Remove</button></div>`).join('');
     const lastSync = doc?.sync?.last_success || doc?.syncedAt;
-    $('[data-sheet]').innerHTML = `<div class="sh-top"><span class="grab"></span><button class="x" data-close aria-label="Close">✕</button></div><h2>Settings</h2><p class="note">Calendar is read-only. It shows Google calendars from Connected accounts and private Google iCal links.</p><div class="sync"><span>${lastSync ? `Last sync ${esc(fmtSynced(lastSync))}` : 'Not synced yet'}${doc?.sync ? ` · every ${esc(doc.sync.interval_minutes || 10)} min` : ''}</span><button class="btn wz-button" data-sync>Sync now</button></div><section data-sync-section><div class="sec">Connected accounts</div>${(doc?.sync?.accounts || []).map(a => `<p class="note">${esc(a.email)} · ${a.calendar_allowed ? esc(a.status) : 'Calendar permission needed'}</p>`).join('') || '<p class="note">No linked accounts yet.</p>'}<p class="note">${esc(doc?.sync?.state === 'ok' ? 'Read-only sync is connected.' : setupMessages[doc?.sync?.state] || 'Read-only sync is connected.')}</p>${setupLink()}${doc?.sync?.last_error ? `<p class="msg err" role="alert">${esc(doc.sync.last_error)}</p>` : ''}<p class="note">Snapshot source: ${doc?.source === 'connected_accounts' ? 'Connected accounts' : doc?.source === 'manual_import' ? 'Manual import' : sources.length ? 'Google iCal' : 'Empty'}</p></section><div class="sec">Your Google iCal calendars</div>${sourceRows || '<p class="note">No Google iCal calendars added.</p>'}<div class="sec">Add calendar</div><label class="field">Calendar name<input type="text" data-source-name maxlength="300" autocomplete="off" placeholder="Personal"></label><label class="field">Google iCal link<input type="text" data-source-url maxlength="4096" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://calendar.google.com/…/basic.ics"></label><p class="note">Use the private iCal link from Google Calendar settings. Anyone with that link can read the calendar, so it stays private on this Wizard.</p><button class="btn" data-add-source>Add calendar</button><div class="sec">Visible calendars</div>${list || '<p class="note">Connect Google above, add an iCal link, or import a manual snapshot below.</p>'}<div class="sec">Advanced</div><p class="note">Snapshot import replaces the local snapshot, not your Google calendar. Saved iCal links stay and return on the next sync; the next Connected accounts sync replaces imported data again when linked. Export a backup first if needed. Only import files you intend to show here.</p><input type="file" data-import accept="application/json,.json" aria-label="Import snapshot JSON"><a class="btn" href="api/export" download="calendar-snapshot.json">Export snapshot</a><div class="msg" data-c-msg role="status"></div>`;
+    $('[data-sheet]').innerHTML = `<div class="sh-top"><span class="grab"></span><button class="x" data-close aria-label="Close">✕</button></div><h2>Settings</h2><p class="note">Calendar is read-only. It shows Google calendars from Connected accounts and private Google iCal links.</p><div class="sync"><span>${lastSync ? `Last sync ${esc(fmtSynced(lastSync))}` : 'Not synced yet'}${doc?.sync ? ` · every ${esc(doc.sync.interval_minutes || 10)} min` : ''}</span><button class="btn wz-button" data-sync>Sync now</button></div><section data-sync-section><div class="sec">Connected accounts</div>${(doc?.sync?.accounts || []).map(a => `<p class="note">${esc(a.email)} · ${a.calendar_allowed ? esc(a.status) : 'Calendar permission needed'}</p>`).join('') || '<p class="note">No linked accounts yet.</p>'}<p class="note">${esc(doc?.sync?.state === 'ok' ? 'Read-only sync is connected.' : setupMessages[doc?.sync?.state] || 'Read-only sync is connected.')}</p>${setupLink()}${doc?.sync?.last_error ? `<p class="msg err" role="alert">${esc(doc.sync.last_error)}</p>` : ''}<p class="note">Snapshot source: ${doc?.source === 'connected_accounts' ? 'Connected accounts' : doc?.source === 'manual_import' ? 'Manual import' : sources.length ? 'Google iCal' : 'Empty'}</p></section><div class="sec">Your Google iCal calendars</div>${sourceRows || '<p class="note">No Google iCal calendars added.</p>'}<div class="sec">Add calendar</div><label class="field">Calendar name<input type="text" data-source-name maxlength="300" autocomplete="off" placeholder="Personal"></label><label class="field">Google iCal link<input type="text" data-source-url maxlength="4096" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://calendar.google.com/…/basic.ics"></label><p class="note">Use the private iCal link from Google Calendar settings. Anyone with that link can read the calendar, so it stays private on this Wizard.</p><button class="btn" data-add-source>Add calendar</button><div class="sec">Visible calendars</div>${list || '<p class="note">Connect Google above, add an iCal link, or import a manual snapshot below.</p>'}${switches.length ? `<div class="sec">Try changes</div>${switchRows()}` : ''}<div class="sec">Advanced</div><p class="note">Snapshot import replaces the local snapshot, not your Google calendar. Saved iCal links stay and return on the next sync; the next Connected accounts sync replaces imported data again when linked. Export a backup first if needed. Only import files you intend to show here.</p><input type="file" data-import accept="application/json,.json" aria-label="Import snapshot JSON"><a class="btn" href="api/export" download="calendar-snapshot.json">Export snapshot</a><div class="msg" data-c-msg role="status"></div>`;
     showSheet();
     if (!sheetOpen) { sheetOpen = true; sheetBack = WizardApp.back.push(() => { closeSheet(); return true; }); }
   }
@@ -384,6 +423,7 @@
     if (t.matches('[data-add-source]')) return addSource(t);
     if (t.dataset.removeSource) return removeSource(t);
     if (t.dataset.vis) return toggleCal(t);
+    if (t.dataset.switch) return toggleSwitch(t);
     if (t.dataset.ev) return openSheet(t.dataset.ev);
     if (t.dataset.day) return select(t.dataset.day, true);
     if (t.dataset.mode) return setMode(t.dataset.mode);
@@ -479,8 +519,9 @@
   sel = null; view = null;
   applyMode();
   renderTodayBtn();
+  loadSwitches();
   load(false).catch(() => {});
   setInterval(() => { renderTodayBtn(); if (doc && mode !== 'month') renderTime(); }, 60e3);
   WizardApp.theme.onChange(() => { if (doc) render(); });
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) load(false).catch(() => {}); });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { loadSwitches(); load(false).catch(() => {}); } });
 })();
