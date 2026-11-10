@@ -235,7 +235,8 @@
 
   function setMode(m) {
     if (!MODES.includes(m)) return;
-    mode = m; localStorage.setItem('wc.mode', m); needScroll = true; wkStart = null;
+    wkStart = null; // a new view starts from the Monday-first week again
+    mode = m; localStorage.setItem('wc.mode', m); needScroll = true;
     if (m === 'month' && sel) view = [+sel.slice(0, 4), +sel.slice(5, 7) - 1];
     applyMode(); render();
   }
