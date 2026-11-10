@@ -210,25 +210,25 @@ a { color: var(--violet-2); }
    One slim row: navigation, date label, status, (wide) view switcher, Today and Settings. */
 html[data-compact-header] .bar { gap: 4px; padding: calc(4px + env(safe-area-inset-top)) 8px 3px; min-width: 0; }
 html[data-compact-header] .bar .grow { display: none; }
-html[data-compact-header] .month { flex: 0 0 auto; font-size: 16px; padding: 3px 6px; border-radius: 8px; white-space: nowrap; }
+html[data-compact-header] .month { flex: 0 0 auto; font-size: 1rem; padding: 3px 6px; border-radius: 8px; white-space: nowrap; }
 html[data-compact-header] .nav { flex: 0 0 auto; width: 30px; height: 30px; border-radius: 9px; }
 html[data-compact-header] .nav svg { width: 16px; height: 16px; }
 html[data-compact-header] .nav.today-btn svg { width: 19px; height: 19px; }
-html[data-compact-header] .nav.today-btn b { font-size: 9px; }
-html[data-compact-header] .bar .status { flex: 1 1 0; min-width: 0; margin: 0 0 0 4px; font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+html[data-compact-header] .nav.today-btn b { font-size: .5625rem; }
+html[data-compact-header] .bar .status { flex: 1 1 0; min-width: 0; margin: 0 0 0 4px; font-size: .71875rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 html[data-compact-header] .bar .tabs { flex: 0 0 auto; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: 10px; background: none; }
-html[data-compact-header] .bar .tabs button { flex: 0 0 auto; height: 24px; padding: 0 10px; border-radius: 8px; font-size: 13px; }
+html[data-compact-header] .bar .tabs button { flex: 0 0 auto; height: 24px; padding: 0 10px; border-radius: 8px; font-size: .8125rem; }
 html[data-compact-header] .app > .tabs { gap: 4px; padding: 4px 8px calc(4px + env(safe-area-inset-bottom)); }
-html[data-compact-header] .app > .tabs button { height: 34px; font-size: 13.5px; }
+html[data-compact-header] .app > .tabs button { height: 34px; font-size: .84375rem; }
 html[data-compact-header] .tg-head { padding: 0 10px 2px 0; }
 html[data-compact-header] .dhd { padding: 1px 0 2px; }
-html[data-compact-header] .dhd .w { font-size: 10px; }
-html[data-compact-header] .dhd .n { width: 26px; height: 26px; font-size: 14px; }
+html[data-compact-header] .dhd .w { font-size: .625rem; }
+html[data-compact-header] .dhd .n { width: 26px; height: 26px; font-size: .875rem; }
 html[data-compact-header] .tg-in { margin-top: 6px; }
 /* Very narrow windows: a smaller date label so Today and Settings stay on screen. */
 @media (max-width: 360px) {
   html[data-compact-header] .bar { gap: 2px; padding-left: 4px; padding-right: 4px; }
-  html[data-compact-header] .month { font-size: 14px; padding: 3px 4px; }
+  html[data-compact-header] .month { font-size: .875rem; padding: 3px 4px; }
   html[data-compact-header] .bar .status.is-count { display: none; } /* plain event count only; messages stay */
 }
 /* Touch screens keep a slightly larger hit area. */
