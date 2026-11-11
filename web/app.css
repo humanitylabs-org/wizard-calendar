@@ -307,6 +307,13 @@ html[data-presentation="immersive"] .bar { padding-right: 170px; }
 .wcs-back { display: inline-block; margin: 0 0 10px; padding: 4px 0; border: 0; background: none; color: var(--violet-2); font: inherit; cursor: pointer; }
 .wcs-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; margin-top: 16px; }
 .wcs-actions .btn { margin-top: 0; }
+/* After connecting: the agent access choices (issue 29), one tappable row each, the current one marked. */
+.wcs-choices { margin-top: 14px; }
+.wcs-choice { width: 100%; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; padding: 10px 14px; }
+.wcs-choice .wcs-main { display: grid; gap: 2px; }
+.wcs-choice small { color: var(--ink-3); font-size: .8125rem; line-height: 1.35; }
+.wcs-choice.wcs-current { background: color-mix(in srgb, var(--violet) 14%, transparent); }
+.wcs-choice:disabled { opacity: .6; cursor: default; }
 .sheet .btn.wcs-danger { color: var(--red); background: transparent; }
 
 /* Agents' suggestions (Suggest only): a quiet strip under the bar, Approve / Dismiss on each. */

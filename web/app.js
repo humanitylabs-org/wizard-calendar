@@ -235,7 +235,7 @@
         const sub0 = mode === 'day' || h >= 44;
         const lines = Math.max(1, Math.floor((h - (mode === 'day' ? 9 : 5) - (sub0 ? lh : 0)) / lh));
         const sub = mode === 'day' ? `${time}${e.location ? ` · ${esc(e.location)}` : ''}` : (h >= 44 ? fmtT(e.start) : '');
-        return `<button class="blk${past ? ' past' : ''}${live ? ' live' : ''}${tight ? ' tight' : ''}" data-ev="${esc(e.id)}" style="--c:${esc(e.color)};top:${top}px;height:${Math.max(h - 1, MIN_BLK - 1)}px;left:calc(${col / nc * 100}% + 1px);width:calc(${100 / nc}% - 2px)" aria-label="${esc(e.title)}, ${time}"><b${tight ? '' : ` style="-webkit-line-clamp:${lines}"`}>${esc(e.title)}</b>${sub ? `<span>${sub}</span>` : ''}</button>`;
+        return `<button class="blk${past ? ' past' : ''}${live ? ' live' : ''}${tight ? ' tight' : ''}" data-ev="${esc(e.id)}" style="--c:${esc(e.color)};top:${top}px;height:${Math.max(h - 1, MIN_BLK - 1)}px;left:calc(${col / nc * 100}% + 1px);width:calc(${100 / nc}% - 2px)" aria-label="${esc(e.title)}, ${time}${e.live?.by_agent ? ', by your agent' : ''}"><b${tight ? '' : ` style="-webkit-line-clamp:${lines}"`}>${esc(e.title)}</b>${sub ? `<span>${sub}</span>` : ''}</button>`;
       }).join('');
       const nowLine = k === tk ? `<i class="now" style="top:${nowMins() / 60 * HOUR}px"></i>` : '';
       return `<div class="col${k === tk ? ' today' : ''}" data-col="${k}">${blocks}${nowLine}</div>`;
@@ -301,7 +301,9 @@
     const none = !doc.calendars?.length;
     $('[data-hello]').hidden = !none;
     document.querySelector('.app').classList.toggle('is-empty', none);
-    for (const b of document.querySelectorAll('[data-new]')) b.hidden = !liveCals().length;
+    // + shows whenever Calendar shows anything (issue 29): without a Google or Microsoft calendar it explains how to
+    // get one you can change, instead of Calendar silently looking read-only.
+    for (const b of document.querySelectorAll('[data-new]')) b.hidden = none;
     // The count is for screen readers only: the calendar itself shows the events.
     const st = $('[data-status]');
     if (!(st.dataset.toastUntil > Date.now())) { st.textContent = none ? '' : `${doc.events.length} visible events · ${TZ}`; st.hidden = none; st.classList.add('wc-sr'); }
@@ -330,8 +332,9 @@
       ${e.attendees ? `<div class="row"><span class="k">Guests</span><span class="v">${e.attendees}</span></div>` : ''}
       ${e.guests ? `<div class="row"><span class="k">Guests</span><span class="v">${esc(e.guests)}</span></div>` : ''}
       ${desc ? `<div class="row"><span class="k">Notes</span><span class="v">${esc(desc)}</span></div>` : ''}
+      ${e.live?.by_agent ? '<div class="row" data-by-agent><span class="k">Changed</span><span class="v">by your agent</span></div>' : ''}
       <div class="acts">${canReply() ? `<button class="wz-button secondary" type="button" data-reply="${esc(e.id)}">Reply</button>` : ''}${e.meet ? `<a href="${esc(e.meet)}" target="_blank" rel="noopener">Join Meet</a>` : ''}${maps ? `<a href="${esc(maps)}" target="_blank" rel="noopener">Map</a>` : ''}${e.link ? `<a href="${esc(e.link)}" target="_blank" rel="noopener">${e.live ? 'Open in ' + (cal?.source === 'microsoft' ? 'Outlook' : 'Google Calendar') : 'Open in Google Calendar'}</a>` : ''}</div>
-      ${e.live ? liveActions(e) : ''}<div class="msg" data-c-msg role="status"></div>`;
+      ${e.live ? liveActions(e) : readOnlyNote()}<div class="msg" data-c-msg role="status"></div>`;
     showSheet();
     if (!sheetOpen) { sheetOpen = true; sheetBack = WizardApp.back.push(() => { closeSheet(); return true; }); }
   }
@@ -397,6 +400,35 @@
     }
   }
   // role/aria-modal only while open: the Wizard shell reads them to confirm a Back press closed something.
+  // ---- read-only calendars (issue 29): private iCal links and snapshots can't be changed from anywhere, so say so and
+  // offer the calendars that can (Google, Microsoft) instead of showing an event with no way to change it. ----
+  function readOnlyNote() {
+    if (liveCals().length) return '<p class="note" data-read-only>This event comes from a private iCal link, which is read-only. Change it in Google Calendar; it shows here on the next sync.</p>';
+    return `<p class="note" data-read-only>This event comes from a private iCal link, which is read-only. Connect Google or Microsoft to add, change and delete events and answer invites here.</p><div class="live-acts"><button class="btn primary" data-connect-any>Connect Google or Microsoft</button></div>`;
+  }
+  function writableHelp() {
+    $('[data-sheet]').innerHTML = `${SHEET_TOP}<h2>Add events</h2><p class="note" data-writable-help>Your calendars here come from private iCal links, which are read-only. Connect Google or Microsoft to add, change and delete events and answer invites in Calendar.</p>
+      <div class="hello-list"><button class="hello-row" data-connect="google"><span class="tile">G</span><span class="main"><b>Google</b><small>Google Calendar</small></span><span class="chev" aria-hidden="true">›</span></button><button class="hello-row" data-connect="microsoft"><span class="tile">M</span><span class="main"><b>Microsoft</b><small>Outlook, Hotmail, Microsoft 365</small></span><span class="chev" aria-hidden="true">›</span></button></div>`;
+    showSheet();
+    if (!sheetOpen) { sheetOpen = true; sheetBack = WizardApp.back.push(() => { closeSheet(); return true; }); }
+  }
+  function sheetPage(title, nodes) {
+    $('[data-sheet]').innerHTML = `${SHEET_TOP}<h2></h2><div class="wcs" data-wcs-page></div><div class="msg" data-c-msg role="status"></div>`;
+    $('[data-sheet] h2').textContent = title;
+    $('[data-wcs-page]').append(...nodes);
+    $('[data-sheet]').scrollTop = 0;
+    showSheet();
+    if (!sheetOpen) { sheetOpen = true; sheetBack = WizardApp.back.push(() => { closeSheet(); return true; }); }
+  }
+  // Right after connecting (issue 29): the owner chooses what agents may do with this calendar, the same choice as
+  // Settings > Agent access. Skipped when the source app has no agent access setting or nothing got connected.
+  async function askAccess(source, backToSettings) {
+    const S = window.WizardCalendarSettings;
+    if (!S?.chooseAccess) return backToSettings && openCals();
+    const shown = await S.chooseAccess(source, { say, page: sheetPage, done: () => (backToSettings ? openCals() : closeSheet()) }).catch(() => false);
+    if (!shown && backToSettings) openCals();
+  }
+
   // ---- connected calendars: answer, add, edit, delete (the source app does the work) ----
   const RSVP = [['accepted', 'Going'], ['tentative', 'Maybe'], ['declined', 'Not going']];
   function liveActions(e) {
@@ -429,7 +461,7 @@
   const pad = (n) => String(n).padStart(2, '0');
   const hhmm = (mins) => `${pad(Math.floor(mins / 60) % 24)}:${pad(mins % 60)}`;
   function openForm(e, preset) {
-    const cals = liveCals(); if (!cals.length) return connect();
+    const cals = liveCals(); if (!cals.length) return writableHelp();
     const all = e ? e.allDay : !!preset?.allDay;
     const day = e ? (e.allDay ? e.start.slice(0, 10) : dayKey(new Date(e.start))) : (preset?.day || sel || todayKey());
     const endDay = e ? (e.allDay ? addDays(e.end.slice(0, 10), -1) : dayKey(new Date(new Date(e.end) - 1))) : day;
@@ -478,9 +510,10 @@
   function connect(source, backToSettings) {
     if (!window.WizardConnect) return;
     if (sheetOpen) closeSheet();
-    window.WizardConnect.open({ purpose: 'calendar', source, onDone: async () => {
+    window.WizardConnect.open({ purpose: 'calendar', source, onDone: async (done) => {
       range = null;
       await load(false).catch(() => {});
+      if (done?.source) return askAccess(done.source, backToSettings);
       if (backToSettings) openCals();
     } });
   }
@@ -596,7 +629,7 @@
     document.querySelector('[data-status]').textContent = 'Wizard core is missing. Follow the standalone setup in README.md.';
     return;
   }
-  const VERSION = '0.3.9';
+  const VERSION = '0.3.10';
   WizardApp.ready({ name: 'Calendar', version: VERSION });
 
   // Owner feature switches (GET/POST api/switches, wizard.app-switches/1). All off by default; the Tracker's Try it
@@ -658,12 +691,7 @@
       window.WizardCalendarSettings.render($('[data-wcs]'), {
         say, accounts: () => doc?.accounts || [], connect: (source) => connect(source, true), home: openCals,
         changed: async () => { range = null; await load(false).catch(() => {}); },
-        page: (title, nodes) => {
-          $('[data-sheet]').innerHTML = `${SHEET_TOP}<h2></h2><div class="wcs" data-wcs-page></div><div class="msg" data-c-msg role="status"></div>`;
-          $('[data-sheet] h2').textContent = title;
-          $('[data-wcs-page]').append(...nodes);
-          $('[data-sheet]').scrollTop = 0;
-        },
+        page: sheetPage,
       });
     }
   }
@@ -740,6 +768,7 @@
     if (t.dataset.sgDismiss) return decide(t, false);
     if (t.matches('[data-sg-open]')) return openSuggestions();
     if (t.dataset.connect) return connect(t.dataset.connect);
+    if (t.matches('[data-connect-any]')) return connect();
     if (t.dataset.fix) return WizardApp.nav?.openApp ? WizardApp.nav.openApp(`wizard-${t.dataset.fix}`) : connect(t.dataset.fix);
     if (t.matches('[data-new]')) return openForm(null, { day: sel });
     if (t.dataset.reply) return reply(t);
@@ -790,10 +819,10 @@
     if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) $(dx < 0 ? '[data-next-month]' : '[data-prev]').click();
   }, { passive: true });
 
-  // Tap an empty spot in Day/Week to add an event there (connected calendars only).
+  // Tap an empty spot in Day/Week to add an event there (without a Google or Microsoft calendar: how to get one).
   $('[data-tin]').addEventListener('click', (ev) => {
     const col = ev.target.closest('.col');
-    if (!col || ev.target.closest('button') || !liveCals().length) return;
+    if (!col || ev.target.closest('button')) return;
     const y = ev.clientY - col.getBoundingClientRect().top;
     openForm(null, { day: col.dataset.col, mins: Math.max(0, Math.min(23 * 60, Math.floor(y / HOUR * 2) * 30)) });
   });

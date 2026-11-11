@@ -235,7 +235,9 @@ class Live:
             'live': {'account': account['key'], 'calendar_id': str(e.get('calendar_id') or 'primary'), 'id': str(e['id']),
                      'is_organizer': bool(e.get('is_organizer')), 'my_response': str(e.get('my_response') or 'none'),
                      'invited': bool(people) and not e.get('is_organizer'), 'recurring': bool(e.get('recurring')),
-                     'time_zone': str((e.get('start') or {}).get('time_zone') or '')},
+                     'time_zone': str((e.get('start') or {}).get('time_zone') or ''),
+                     # The source app marks an event an agent added or last changed (issue 29): shown as "by your agent".
+                     'by_agent': e.get('by_agent') is True},
         }
 
     def window(self, start, end, caller=None):
