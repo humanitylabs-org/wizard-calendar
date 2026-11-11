@@ -213,8 +213,9 @@
     // All-day row
     const bars = allDayLanes(days);
     $('[data-allrow]').hidden = !bars.length;
+    const dragOn = switchOn('drag-events');
     $('[data-lanes]').innerHTML = bars.map(({ e, s, en, lane, cutL, cutR }) =>
-      `<button class="ad${cutL ? ' cut-l' : ''}${cutR ? ' cut-r' : ''}" data-ev="${esc(e.id)}" style="--c:${esc(e.color)};grid-column:${s + 1} / ${en + 2};grid-row:${lane + 1}">${esc(e.title)}</button>`).join('');
+      `<button class="ad${cutL ? ' cut-l' : ''}${cutR ? ' cut-r' : ''}${dragOn ? (canDrag(e) ? ' dz' : ' nodrag') : ''}" data-ev="${esc(e.id)}" style="--c:${esc(e.color)};grid-column:${s + 1} / ${en + 2};grid-row:${lane + 1}">${esc(e.title)}</button>`).join('');
 
     // Hours + columns: 24 rows sized to fit; labels thin out when rows get too short for every one.
     HOUR = fitHour();
@@ -235,7 +236,9 @@
         const sub0 = mode === 'day' || h >= 44;
         const lines = Math.max(1, Math.floor((h - (mode === 'day' ? 9 : 5) - (sub0 ? lh : 0)) / lh));
         const sub = mode === 'day' ? `${time}${e.location ? ` · ${esc(e.location)}` : ''}` : (h >= 44 ? fmtT(e.start) : '');
-        return `<button class="blk${past ? ' past' : ''}${live ? ' live' : ''}${tight ? ' tight' : ''}" data-ev="${esc(e.id)}" style="--c:${esc(e.color)};top:${top}px;height:${Math.max(h - 1, MIN_BLK - 1)}px;left:calc(${col / nc * 100}% + 1px);width:calc(${100 / nc}% - 2px)" aria-label="${esc(e.title)}, ${time}${e.live?.by_agent ? ', by your agent' : ''}"><b${tight ? '' : ` style="-webkit-line-clamp:${lines}"`}>${esc(e.title)}</b>${sub ? `<span>${sub}</span>` : ''}</button>`;
+        // Drag to move and resize (issue 19): a bottom-edge handle on the block that holds the event's end.
+        const dz = dragOn && canDrag(e), rsz = dz && dayKey(new Date(new Date(e.end) - 1)) === k;
+        return `<button class="blk${past ? ' past' : ''}${live ? ' live' : ''}${tight ? ' tight' : ''}${dragOn ? (dz ? ' dz' : ' nodrag') : ''}" data-ev="${esc(e.id)}" style="--c:${esc(e.color)};top:${top}px;height:${Math.max(h - 1, MIN_BLK - 1)}px;left:calc(${col / nc * 100}% + 1px);width:calc(${100 / nc}% - 2px)" aria-label="${esc(e.title)}, ${time}${e.live?.by_agent ? ', by your agent' : ''}"><b${tight ? '' : ` style="-webkit-line-clamp:${lines}"`}>${esc(e.title)}</b>${sub ? `<span>${sub}</span>` : ''}${rsz ? `<i class="rsz" aria-hidden="true" style="height:${Math.round(Math.min(7, Math.max(3, h * .3)))}px"></i>` : ''}</button>`;
       }).join('');
       const nowLine = k === tk ? `<i class="now" style="top:${nowMins() / 60 * HOUR}px"></i>` : '';
       return `<div class="col${k === tk ? ' today' : ''}" data-col="${k}">${blocks}${nowLine}</div>`;
@@ -626,12 +629,13 @@
 
   function showSheet() { const sh = $('[data-sheet]'); sh.hidden = false; sh.setAttribute('role', 'dialog'); sh.setAttribute('aria-modal', 'true'); $('[data-sheet-back]').hidden = false; }
   function hideSheet() { const sh = $('[data-sheet]'); sh.hidden = true; sh.removeAttribute('role'); sh.removeAttribute('aria-modal'); $('[data-sheet-back]').hidden = true; }
-  function closeSheet() { sheetOpen = false; hideSheet(); sheetBack?.release(); sheetBack = null; }
+  let repeatAsk = null; // the open "Change a repeating event" question (issue 19): closing the sheet any way answers Cancel
+  function closeSheet() { sheetOpen = false; hideSheet(); sheetBack?.release(); sheetBack = null; if (repeatAsk) { const f = repeatAsk; repeatAsk = null; f(false); } }
   if (!window.WizardApp) {
     document.querySelector('[data-status]').textContent = 'Wizard core is missing. Follow the standalone setup in README.md.';
     return;
   }
-  const VERSION = '0.3.11';
+  const VERSION = '0.3.12';
   WizardApp.ready({ name: 'Calendar', version: VERSION });
 
   // Owner feature switches (GET/POST api/switches, wizard.app-switches/1). All off by default; the Tracker's Try it
@@ -834,6 +838,7 @@
   $('[data-time]').addEventListener('touchstart', (e) => { tx = e.touches[0].clientX; ty = e.touches[0].clientY; }, { passive: true });
   $('[data-time]').addEventListener('touchend', (e) => {
     if (tx == null) return;
+    if (eatClick) { tx = null; return; } // that touch dragged an event (issue 19), not the week
     const dx = e.changedTouches[0].clientX - tx, dy = e.changedTouches[0].clientY - ty; tx = null;
     if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
       if (mode === 'week') return stepWeek(dx < 0 ? 7 : -7); // swipes still turn a whole week
@@ -906,6 +911,173 @@
     clearTimeout(swipeTimer);
     swipeTimer = setTimeout(() => { if (Math.abs(swipeAcc) >= step / 3) shiftDay(Math.sign(swipeAcc)); swipeAcc = 0; }, 140);
   }, { passive: false });
+
+
+  // ---- Drag to move and resize (switch drag-events, issue 19). Day and Week only. A press-and-drag on an event you can
+  // change moves it (15-minute steps; across day columns in Week the date changes too); its bottom edge resizes it;
+  // all-day bars move between days. Touch needs a short hold first, so the grid still scrolls. Esc cancels. The drop
+  // saves through the editor's own path (api/live/update, same account and calendar), then offers Undo.
+  // Events you can't change (iCal, Connected accounts, invites you didn't organise) don't move: not-allowed cursor. ----
+  const SNAP = 15;
+  const canDrag = (e) => !!e?.live && (e.live.is_organizer || !e.live.invited);
+  const wallOf = (iso) => ({ day: dayKey(new Date(iso)), m: hm(iso) });
+  const wallAt = (day, m) => { const d = Math.floor(m / 1440); return { day: addDays(day, d), m: m - d * 1440 }; };
+  const wallStr = (w) => `${w.day}T${hhmm(w.m)}`;
+  const dayDiff = (a, b) => Math.round((civil(b) - civil(a)) / 864e5);
+  const wallMins = (a, b) => dayDiff(a.day, b.day) * 1440 + b.m - a.m; // minutes from wall time a to b
+  let drag = null, eatClick = false;
+  const tbodyEl = $('[data-tbody]');
+  function dragCols() { return [...document.querySelectorAll('[data-tin] .col')]; }
+  function colIndexAt(x) {
+    const cols = dragCols(); let i = cols.findIndex((c) => { const r = c.getBoundingClientRect(); return x >= r.left && x < r.right; });
+    if (i < 0) i = x < (cols[0]?.getBoundingClientRect().left ?? 0) ? 0 : cols.length - 1;
+    return i;
+  }
+  function laneIndexAt(x) {
+    const box = $('[data-lanes]').getBoundingClientRect(), n = mode === 'week' ? 7 : 1;
+    return Math.max(0, Math.min(n - 1, Math.floor((x - box.left) / (box.width / n))));
+  }
+  function dragDown(ev) {
+    if (!switchOn('drag-events') || mode === 'month' || sheetOpen || drag || ev.button !== 0) return;
+    const el = ev.target.closest('.blk, .ad'); if (!el || el.classList.contains('ghost')) return;
+    const e = evById(el.dataset.ev); if (!e) return;
+    drag = { el, e, id: ev.pointerId, x0: ev.clientX, y0: ev.clientY, x: ev.clientX, y: ev.clientY, scroll0: tbodyEl.scrollTop,
+      allDay: el.classList.contains('ad'), kind: ev.target.closest('.rsz') ? 'resize' : 'move', ok: canDrag(e), on: false,
+      touch: ev.pointerType === 'touch' };
+    if (!drag.allDay) drag.col0 = dragCols().indexOf(el.closest('.col'));
+    else drag.lane0 = laneIndexAt(ev.clientX);
+    if (drag.touch) drag.timer = setTimeout(() => { if (drag && !drag.on) begin(); }, 380);
+  }
+  function begin() {
+    const d = drag; d.on = true;
+    try { d.el.setPointerCapture(d.id); } catch { /* the pointer is already gone */ }
+    if (!d.ok) { document.documentElement.classList.add('wc-nodrop'); return; }
+    document.documentElement.classList.add('wc-dragging');
+    d.el.classList.add('dragging');
+    if (!d.allDay) {
+      d.ghost = document.createElement('div');
+      d.ghost.className = 'blk ghost';
+      d.ghost.style.setProperty('--c', d.e.color);
+      d.ghost.setAttribute('aria-hidden', 'true');
+    }
+    preview();
+  }
+  // Where the event would go now: {start, end} as wall times (timed) or dates (all-day).
+  function dragTarget() {
+    const d = drag, e = d.e;
+    if (d.allDay) {
+      const n = laneIndexAt(d.x) - d.lane0;
+      return { allDay: true, start: addDays(e.start.slice(0, 10), n), end: addDays(e.end.slice(0, 10), n), n };
+    }
+    const dm = (d.y - d.y0 + tbodyEl.scrollTop - d.scroll0) / HOUR * 60;
+    const s = wallOf(e.start), en = wallOf(e.end), dur = wallMins(s, en);
+    if (d.kind === 'resize') {
+      const raw = wallAt(en.day, Math.round((en.m + dm) / SNAP) * SNAP);
+      return { s, e: wallMins(s, raw) < SNAP ? wallAt(s.day, s.m + SNAP) : raw };
+    }
+    const dd = mode === 'week' ? colIndexAt(d.x) - d.col0 : 0;
+    const t = wallAt(s.day, s.m + dd * 1440 + dm);
+    const ns = wallAt(t.day, Math.round(t.m / SNAP) * SNAP);
+    return { s: ns, e: wallAt(ns.day, ns.m + dur) };
+  }
+  function preview() {
+    const d = drag; if (!d?.on || !d.ok) return;
+    const t = d.target = dragTarget();
+    if (d.allDay) {
+      const days = mode === 'week' ? 7 : 1, ws = mode === 'week' ? rollStart(sel) : sel, last = addDays(ws, days - 1);
+      const a = t.start < ws ? ws : t.start, b0 = addDays(t.end, -1), b = b0 > last ? last : b0;
+      if (a <= last && b >= ws) d.el.style.gridColumn = `${dayDiff(ws, a) + 1} / ${dayDiff(ws, b) + 2}`;
+      d.el.dataset.when = fmtC(t.start, { weekday: 'short', day: 'numeric', month: 'short' });
+      return;
+    }
+    // The ghost sits in the column of the new start (moving) or the new end (resizing), clipped to that day.
+    const key = d.kind === 'move' ? t.s.day : (t.e.m === 0 ? addDays(t.e.day, -1) : t.e.day);
+    const col = document.querySelector(`[data-tin] .col[data-col="${key}"]`) || d.el.closest('.col');
+    const top = col.dataset.col === t.s.day ? t.s.m : col.dataset.col > t.s.day ? 0 : 1440;
+    const bot = col.dataset.col === t.e.day ? t.e.m : col.dataset.col < t.e.day ? 1440 : 0;
+    d.ghost.style.top = `${top / 60 * HOUR}px`;
+    const gh = Math.max(MIN_BLK, (bot - top) / 60 * HOUR);
+    d.ghost.style.height = `${gh - 1}px`;
+    d.ghost.classList.toggle('tight', gh < 30); // short: title and new time on one line, so the time always shows
+    d.ghost.innerHTML = `<b>${esc(d.e.title)}</b><span>${hhmm(t.s.m)}–${hhmm(t.e.m)}</span>`;
+    if (d.ghost.parentNode !== col) col.append(d.ghost);
+  }
+  function dragMove(ev) {
+    const d = drag; if (!d || ev.pointerId !== d.id) return;
+    d.x = ev.clientX; d.y = ev.clientY;
+    if (!d.on) {
+      if (Math.hypot(d.x - d.x0, d.y - d.y0) < (d.touch ? 8 : 4)) return;
+      if (d.touch) { clearTimeout(d.timer); drag = null; return; } // moved before the hold: the grid scrolls instead
+      begin();
+    }
+    ev.preventDefault();
+    preview();
+  }
+  function endDrag(redraw) {
+    const d = drag; if (!d) return null;
+    clearTimeout(d.timer); drag = null;
+    document.documentElement.classList.remove('wc-dragging', 'wc-nodrop');
+    if (d.on) { eatClick = true; setTimeout(() => { eatClick = false; }, 60); }
+    if (redraw && d.on) renderTime();
+    return d;
+  }
+  function dragUp(ev) {
+    const d = drag; if (!d || ev.pointerId !== d.id) return;
+    if (!d.on || !d.ok) return void endDrag(true);
+    preview();
+    const t = d.target; endDrag(false);
+    const same = t.allDay ? t.n === 0 : wallMins(wallOf(d.e.start), t.s) === 0 && wallMins(wallOf(d.e.end), t.e) === 0;
+    if (same) return renderTime();
+    if (d.ghost) d.ghost.classList.add('saving');
+    const next = t.allDay ? { start: t.start, end: t.end } : { start: wallStr(t.s), end: wallStr(t.e), time_zone: TZ };
+    const prev = d.e.allDay ? { start: d.e.start.slice(0, 10), end: d.e.end.slice(0, 10) }
+      : { start: wallStr(wallOf(d.e.start)), end: wallStr(wallOf(d.e.end)), time_zone: TZ };
+    dropSave(d.e, next, prev, d.kind === 'resize' ? 'Event resized' : 'Event moved');
+  }
+  // Repeating events: ask before changing. The source apps change one occurrence by its own id; moving every repeat at
+  // once needs the series in the mail-calendar contract (follow-up issue 33), so only "This event" is offered for now.
+  function askRepeat() {
+    return new Promise((done) => {
+      $('[data-sheet]').innerHTML = `${SHEET_TOP}<h2>Change a repeating event</h2><p class="note" data-repeat-ask>Change only this event, or every repeat? Changing every repeat at once isn't possible from Calendar yet: do that in Google Calendar or Outlook.</p>
+        <div class="live-acts"><button class="btn" data-repeat="cancel">Cancel</button><button class="btn" data-repeat="all" disabled title="Not possible from Calendar yet">All events</button><button class="btn primary" data-repeat="one">This event</button></div>`;
+      showSheet();
+      if (!sheetOpen) { sheetOpen = true; sheetBack = WizardApp.back.push(() => { closeSheet(); return true; }); }
+      repeatAsk = done;
+      for (const b of document.querySelectorAll('[data-repeat]')) b.addEventListener('click', (ev) => { ev.stopPropagation(); repeatAsk = null; closeSheet(); done(b.dataset.repeat === 'one'); });
+    });
+  }
+  async function dropSave(e, next, prev, label) {
+    if (e.live.recurring && !(await askRepeat())) return renderTime();
+    try {
+      await livePost('api/live/update', { ...target(e), ...next });
+      await load(false).catch(() => {});
+      undoToast(label, async () => {
+        try { await livePost('api/live/update', { ...target(e), ...prev }); toast('Change undone'); }
+        catch (err) { toast(err.message); }
+        await load(false).catch(() => {});
+      });
+    } catch (err) { renderTime(); toast(err.message); }
+  }
+  // A short toast with Undo (the shell's toast has no buttons), kept in the page for 6 s.
+  let undoTimer = 0;
+  function undoToast(text, undo) {
+    let box = $('[data-undo]');
+    if (!box) { box = document.createElement('div'); box.className = 'wc-undo'; box.dataset.undo = ''; box.setAttribute('role', 'status'); $('.app').append(box); }
+    box.innerHTML = `<span>${esc(text)}</span><button class="lnk" type="button" data-undo-btn>Undo</button>`;
+    box.hidden = false; clearTimeout(undoTimer);
+    const hide = () => { box.hidden = true; clearTimeout(undoTimer); };
+    undoTimer = setTimeout(hide, 6000);
+    box.querySelector('[data-undo-btn]').addEventListener('click', (ev) => { ev.stopPropagation(); hide(); undo(); }, { once: true });
+  }
+  for (const el of [$('[data-tin]'), $('[data-lanes]')]) el.addEventListener('pointerdown', dragDown);
+  document.addEventListener('pointermove', dragMove, { passive: false });
+  document.addEventListener('pointerup', dragUp);
+  document.addEventListener('pointercancel', (ev) => { if (drag && ev.pointerId === drag.id) endDrag(true); });
+  // Once a touch drag has started, the finger moves the event, not the page.
+  document.addEventListener('touchmove', (ev) => { if (drag?.on) ev.preventDefault(); }, { passive: false });
+  document.addEventListener('contextmenu', (ev) => { if (drag) ev.preventDefault(); });
+  document.addEventListener('click', (ev) => { if (eatClick) { eatClick = false; ev.stopPropagation(); ev.preventDefault(); } }, true);
+  document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && drag) { ev.stopPropagation(); endDrag(true); } }, true);
 
   sel = null; view = null;
   applyMode();

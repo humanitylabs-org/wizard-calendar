@@ -425,3 +425,23 @@ html[data-compact-header] .dhd .w { font-size: .625rem; }
 /* Reply on an event (switch reply-on-event): a kit secondary button in the action row, sized like its link pills. */
 .sheet .acts .wz-button { display: inline-flex; align-items: center; justify-content: center; padding: 10px 14px; border-radius: 12px; border: 1px solid var(--line-2); background: transparent; color: var(--ink); font: inherit; font-weight: 600; font-size: .875rem; cursor: pointer; }
 @media (pointer: coarse) { .sheet .acts .wz-button { min-height: 44px; } }
+
+/* Drag to move and resize (switch drag-events, issue 19). */
+.blk.dz, .ad.dz { cursor: grab; touch-action: manipulation; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.blk .rsz { position: absolute; left: 0; right: 0; bottom: 0; height: 7px; cursor: ns-resize; }
+.blk .rsz::after { content: ""; position: absolute; left: 50%; bottom: 2px; width: 16px; margin-left: -8px; height: 2px; border-radius: 1px;
+  background: color-mix(in srgb, var(--c) 70%, var(--ink)); opacity: 0; transition: opacity .15s; }
+.blk.dz:hover .rsz::after { opacity: .8; }
+.blk.dragging { opacity: .35; }
+.ad.dragging { box-shadow: 0 0 0 2px var(--c); }
+.blk.ghost { z-index: 4; pointer-events: none; left: 1px; width: calc(100% - 2px); box-shadow: 0 0 0 2px var(--c), var(--wz-shadow, none);
+  background: color-mix(in srgb, var(--c) 38%, var(--bg)); }
+.blk.ghost span { font-variant-numeric: tabular-nums; color: var(--ink); }
+.blk.ghost.saving { opacity: .7; }
+:root.wc-dragging, :root.wc-dragging * { cursor: grabbing !important; }
+:root.wc-nodrop, :root.wc-nodrop * { cursor: not-allowed !important; }
+.wc-undo { position: fixed; z-index: 30; left: 50%; transform: translateX(-50%); bottom: calc(64px + env(safe-area-inset-bottom));
+  display: flex; align-items: center; gap: 14px; padding: 10px 16px; border-radius: 12px; font-size: .875rem;
+  background: var(--glass-2); color: var(--ink); border: 1px solid var(--line); box-shadow: var(--wz-shadow-window, var(--wz-shadow, none)); }
+.wc-undo[hidden] { display: none; }
+.wc-undo .lnk { color: var(--violet-2); font-weight: 700; font-size: .875rem; background: none; border: 0; padding: 0; cursor: pointer; }
