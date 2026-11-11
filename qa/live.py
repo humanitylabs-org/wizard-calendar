@@ -36,7 +36,9 @@ class Fake:
         self.events = [
             {'id': f'{sid}-1', 'calendar_id': 'primary', 'title': 'Standup', 'all_day': False,
              'start': {'date_time': '2026-11-02T09:00:00+07:00', 'time_zone': 'Asia/Bangkok'}, 'end': {'date_time': '2026-11-02T09:15:00+07:00', 'time_zone': 'Asia/Bangkok'},
-             'attendees': [], 'is_organizer': True, 'my_response': 'organizer', 'link': 'https://calendar.example/1', 'recurring': True},
+             'attendees': [], 'is_organizer': True, 'my_response': 'organizer', 'link': 'https://calendar.example/1', 'recurring': True,
+             # Contract 1.5 names the series; the Microsoft fake plays a source from before 1.5 (no series_id).
+             **({'series_id': 'google-standup'} if sid == 'google' else {})},
             {'id': f'{sid}-2', 'calendar_id': 'primary', 'title': 'Lunch <b>invite</b>', 'all_day': False,
              'start': {'date_time': '2026-11-03T12:00:00', 'time_zone': 'Asia/Bangkok'}, 'end': {'date_time': '2026-11-03T13:00:00', 'time_zone': 'Asia/Bangkok'},
              'attendees': [{'email': email, 'self': True, 'response': 'none'}, {'email': 'anna@example.com', 'name': 'Anna', 'organizer': True}],
@@ -212,6 +214,26 @@ def main():
         check('update', status == 200 and [c for c in g.calls if c[0] == 'calendar_update_event'][-1][1]['title'] == 'Standup (moved)')
         status, value = req('/api/live/update', target, owner)
         check('empty update refused', status == 400)
+        status, view = req('/api/events?from=2026-10-13&to=2026-12-21')
+        standup = {e['id']: e for e in view['events']}
+        check('a repeat carries its series (1.5)', standup['live:google:me@gmail.com|primary|google-1']['live']['series_id'] == 'google-standup'
+              and standup['live:microsoft:me@outlook.com|primary|microsoft-1']['live']['series_id'] == '')
+        series = {**target, 'id': 'google-standup', 'scope': 'series', 'shift_start_minutes': 60, 'shift_end_minutes': 60}
+        status, value = req('/api/live/update', series, owner)
+        sent = [c for c in g.calls if c[0] == 'calendar_update_event'][-1]
+        check('All events: every repeat moves through the source', status == 200 and value == {'updated': True, 'scope': 'series'} and sent[1] == {
+            'account': 'me@gmail.com', 'calendar_id': 'primary', 'id': 'google-standup', 'scope': 'series', 'shift_start_minutes': 60, 'shift_end_minutes': 60}
+            and sent[3] == 'grant-google-0123456789')
+        status, value = req('/api/live/update', {**series, 'shift_start_minutes': 0, 'shift_end_minutes': 30, 'title': 'ignored'}, owner)
+        sent = [c for c in g.calls if c[0] == 'calendar_update_event'][-1][1]
+        check('series resize sends only the end shift, nothing else', status == 200 and sent == {
+            'account': 'me@gmail.com', 'calendar_id': 'primary', 'id': 'google-standup', 'scope': 'series', 'shift_end_minutes': 30})
+        n = len([c for c in g.calls if c[0] == 'calendar_update_event'])
+        for bad in ({**series, 'shift_start_minutes': 1440}, {**series, 'shift_start_minutes': '60'}, {**series, 'shift_end_minutes': True},
+                    {**series, 'shift_start_minutes': 0, 'shift_end_minutes': 0}):
+            status, value = req('/api/live/update', bad, owner)
+            check(f'bad series shift refused: {value.get("code")}', status == 400)
+        check('refused series shifts reach no source', len([c for c in g.calls if c[0] == 'calendar_update_event']) == n)
         status, value = req('/api/live/respond', {**target, 'id': 'google-2', 'response': 'accepted'}, owner)
         check('answer an invite', status == 200 and [c for c in g.calls if c[0] == 'calendar_respond'][-1][1]['response'] == 'accepted')
         status, value = req('/api/live/respond', {**target, 'response': 'maybe'}, owner)

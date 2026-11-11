@@ -2,7 +2,8 @@
  * - Off: events carry no drag classes and a drag changes nothing.
  * - On: an all-day bar moves between days; a timed event moves in 15-minute steps and across Week's day columns, and
  *   its bottom edge resizes it; each drop saves through api/live/update (same account and calendar as the editor) and
- *   offers Undo, which saves the old times back. A repeating event asks "This event" first. An invite you didn't
+ *   offers Undo, which saves the old times back. A repeating event asks "This event" or "All events" (issue 33: a
+ *   same-day move of a series the source names shifts every repeat; Undo shifts back). An invite you didn't
  *   organise doesn't move (not-allowed cursor). Esc cancels a drag. Touch: a short hold, then drag.
  * Run against qa/live_fake.py (loopback dev mode, WIZARD_CORE_DIR=.runtime/core):
  *   CALENDAR_LIVE_URL=<qa/live_fake.py> node qa/drag.cjs */
@@ -111,7 +112,8 @@ const sel = (id) => `[data-ev="${id}"]`;
     await drag(sel(G(1)), cw, H + 1);
     await page.waitForSelector('[data-repeat-ask]');
     assert.equal(await page.locator('[data-repeat="one"]').textContent(), 'This event');
-    assert.equal(await page.locator('[data-repeat="all"]').isDisabled(), true);
+    assert.equal(await page.locator('[data-repeat="all"]').isDisabled(), true, 'a move to another day: All events stays off');
+    assert.match(await page.locator('[data-repeat-ask]').textContent(), /same day/);
     await shot(page, 'drag-repeat');
     assert.equal(updates.length, before, 'nothing saved before the answer');
     await page.evaluate(() => { document.querySelector('[data-undo]').hidden = true; });
@@ -134,6 +136,41 @@ const sel = (id) => `[data-ev="${id}"]`;
     await page.waitForFunction(() => document.querySelector('[data-sheet]').hidden && !document.querySelector('.blk.ghost'));
     assert.equal(updates.length, n2);
     checks.push('Cancel (or Esc) on the repeat question saves nothing and drops the ghost');
+
+    // All events (issue 33): a same-day move of a repeat whose source names the series moves every repeat by the same
+    // minutes (contract 1.5 scope series); Undo shifts them back.
+    const series = (s, e) => ({account:'live:google:me@gmail.com', calendar_id:'primary', id:'google-standup', scope:'series', shift_start_minutes:s, shift_end_minutes:e});
+    await drag(sel(G(1)), 0, H + 1);
+    await page.waitForSelector('[data-repeat-ask]');
+    assert.equal(await page.locator('[data-repeat="all"]').isDisabled(), false, 'All events is offered for a same-day move');
+    assert.match(await page.locator('[data-repeat-ask]').textContent(), /Every repeat moves by the same amount/);
+    await shot(page, 'drag-repeat-all');
+    await page.evaluate(() => { document.querySelector('[data-undo]').hidden = true; });
+    await page.locator('[data-repeat="all"]').click();
+    await toastSays(/Every repeat moved/);
+    assert.deepEqual(updates.at(-1), series(60, 60));
+    await shot(page, 'drag-repeat-all-undo');
+    const sent = updates.length;
+    await page.locator('[data-undo-btn]').click();
+    for (let i = 0; i < 40 && updates.length === sent; i++) await page.waitForTimeout(100);
+    assert.deepEqual(updates.at(-1), series(-60, -60), 'Undo shifts every repeat back');
+    checks.push('All events on a same-day move: sends scope series +60/+60 on google-standup; Undo sends -60/-60');
+    // Resize with All events: only the end moves.
+    await drag(sel(G(1)), 0, H / 2 + 2, {edge:true});
+    await page.waitForSelector('[data-repeat-ask]');
+    await page.evaluate(() => { document.querySelector('[data-undo]').hidden = true; });
+    await page.locator('[data-repeat="all"]').click();
+    await toastSays(/Every repeat resized/);
+    assert.deepEqual(updates.at(-1), series(0, 30));
+    checks.push('All events on a resize: shift_end_minutes 30 only (Every repeat resized)');
+    // A source from before 1.5 (no series_id): All events stays off and says why.
+    const M1 = sel('live:microsoft:me@outlook.com|primary|microsoft-1');
+    await drag(M1, 0, H + 1);
+    await page.waitForSelector('[data-repeat-ask]');
+    assert.equal(await page.locator('[data-repeat="all"]').isDisabled(), true, 'no series id: All events disabled');
+    assert.match(await page.locator('[data-repeat-ask]').textContent(), /newer Google or Microsoft app/);
+    await page.locator('[data-repeat="cancel"]').click();
+    checks.push('repeat from a source without series_id: All events disabled with a note; day change also keeps it disabled');
 
     // Resize: drag the bottom edge half an hour down (snaps to 15 minutes).
     await drag(sel(G(1)), 0, H / 2 + 2, {edge:true});

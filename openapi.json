@@ -2,7 +2,7 @@
   "openapi": "3.0.3",
   "info": {
     "title": "Wizard Calendar API",
-    "version": "0.3.12"
+    "version": "0.3.13"
   },
   "paths": {
     "/healthz": {
@@ -283,7 +283,7 @@
     },
     "/api/live/update": {
       "post": {
-        "summary": "Change an event {account, calendar_id, id, ...fields}.",
+        "summary": "Change an event {account, calendar_id, id, ...fields}, or every repeat of a series {account, calendar_id, id: series_id, scope: series, shift_start_minutes?, shift_end_minutes?} (same day; source contract 1.5).",
         "description": "Owner page only: exact Origin, same-origin fetch, header X-Wizard-Request: calendar.",
         "responses": {
           "200": {

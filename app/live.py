@@ -236,6 +236,8 @@ class Live:
                      'is_organizer': bool(e.get('is_organizer')), 'my_response': str(e.get('my_response') or 'none'),
                      'invited': bool(people) and not e.get('is_organizer'), 'recurring': bool(e.get('recurring')),
                      'time_zone': str((e.get('start') or {}).get('time_zone') or ''),
+                     # The series this repeat belongs to (contract 1.5, issue 33); empty from sources before 1.5.
+                     'series_id': str(e.get('series_id') or '')[:1024] if isinstance(e.get('series_id'), str) else '',
                      # The source app marks an event an agent added or last changed (issue 29): shown as "by your agent".
                      'by_agent': e.get('by_agent') is True},
         }
@@ -323,12 +325,30 @@ class Live:
 
     def update(self, body):
         sid, email = self._target(body)
+        if body.get('scope') == 'series':
+            return self.update_series(sid, email, body)
         fields = self._fields(body, True)
         if not fields:
             raise LiveError(400, 'nothing_to_change', 'Nothing to change.')
         self.sources[sid].call('POST', '/v1/calendar_update_event', {'account': email, **self._ids(body), **fields}, OWNER)
         self.changed()
         return {'updated': True}
+
+    def update_series(self, sid, email, body):
+        """Move every repeat of a series by the same minutes (drag with "All events", issue 33). The source app moves the
+        series' own start/end in its time zone and refuses a change of day (contract 1.5)."""
+        shifts = {}
+        for name in ('shift_start_minutes', 'shift_end_minutes'):
+            value = body.get(name, 0)
+            if isinstance(value, bool) or not isinstance(value, int) or abs(value) > 1439:
+                raise LiveError(400, 'invalid_shift', 'Move a series by less than a day.')
+            if value:
+                shifts[name] = value
+        if not shifts:
+            raise LiveError(400, 'nothing_to_change', 'Nothing to change.')
+        self.sources[sid].call('POST', '/v1/calendar_update_event', {'account': email, **self._ids(body), 'scope': 'series', **shifts}, OWNER)
+        self.changed()
+        return {'updated': True, 'scope': 'series'}
 
     def delete(self, body):
         sid, email = self._target(body)
