@@ -22,8 +22,14 @@ const setSwitch = (ctx, on) => ctx.request.post(base+'/api/switches', {headers:{
         Object.defineProperty(window, 'WizardApp', { configurable: true, get: () => app, set: (real) => {
           const nav = { ...real.nav };
           if (localStorage.getItem('qa.reply') === 'old') delete nav.openContextDraft;
-          else nav.openContextDraft = (c) => { if (window.__throw) throw new Error(window.__throw); (window.__drafts ||= []).push(c); return window.__receipt || {kind:'unsent-draft', sent:false}; };
-          app = Object.freeze({ ...real, back: real.back, nav: Object.freeze(nav) });
+          else nav.openContextDraft = (c) => {
+            if (window.__throwOnce) { const m = window.__throwOnce; window.__throwOnce = null; throw new Error(m); }
+            if (window.__throw) throw new Error(window.__throw); (window.__drafts ||= []).push(c); return window.__receipt || {kind:'unsent-draft', sent:false};
+          };
+          // qa.hosted=no: Calendar on its own (a browser tab / home-screen icon), as WizardApp.hosted reports it there.
+          const hosted = localStorage.getItem('qa.hosted') !== 'no';
+          const ready = (m) => { window.__readies = (window.__readies || 0) + 1; return real.ready(m); };
+          app = Object.freeze({ ...real, hosted, ready, back: real.back, nav: Object.freeze(nav) });
         } });
       });
       const page = await context.newPage(), writes = [];
@@ -83,6 +89,31 @@ const setSwitch = (ctx, on) => ctx.request.post(base+'/api/switches', {headers:{
       await page.locator('[data-reply]').click();
       assert.equal(await page.locator('[data-c-msg]').textContent(), 'Reload Wizard (refresh the whole page) to turn on Reply. Nothing sent.');
       checks.push(`${size.width}: unconfirmed receipt and stale shell say nothing was sent`);
+      // Framed but the direct shell connection is missing at the tap: connect again once (inside the tap) and retry.
+      const OUTSIDE = 'Reply works when Calendar is open inside Wizard. Open Calendar from your Wizard, then tap Reply. Nothing sent.';
+      await page.evaluate(() => { window.__throw = null; window.__receipt = null; window.__drafts = []; window.__readies = 0; window.__throwOnce = 'Context drafts need the verified Wizard host'; });
+      await page.locator('[data-reply]').click();
+      assert.equal(await page.locator('[data-c-msg]').textContent(), 'Draft opened in Chats with this event attached. Nothing sent.');
+      assert.deepEqual(await page.evaluate(() => [window.__drafts.length, window.__readies]), [1, 1]);
+      checks.push(`${size.width}: a missing shell connection is made again inside the tap, then one draft opens`);
+      // Still no verified host after reconnecting: the plain sentence, never the raw shell error.
+      await page.evaluate(() => { window.__drafts = []; window.__throw = 'Context drafts need the verified Wizard host'; });
+      await page.locator('[data-reply]').click();
+      assert.equal(await page.locator('[data-c-msg]').textContent(), OUTSIDE);
+      assert.deepEqual(await page.evaluate(() => window.__drafts.length), 0);
+      await page.evaluate(() => { window.__throw = null; });
+      checks.push(`${size.width}: no verified host says how to reply, not the raw error`);
+      await shut();
+      // On its own (not inside Wizard): Reply stays, explains itself and makes no shell call.
+      await page.evaluate(() => localStorage.setItem('qa.hosted', 'no'));
+      await page.reload(); await page.waitForFunction(() => /visible events/.test(document.querySelector('[data-status]').textContent));
+      await toOct(); await open();
+      await page.evaluate(() => { window.__drafts = []; window.__readies = 0; });
+      await page.locator('[data-reply]').click();
+      assert.equal(await page.locator('[data-c-msg]').textContent(), OUTSIDE);
+      assert.deepEqual(await page.evaluate(() => [window.__drafts.length, window.__readies]), [0, 0]);
+      await page.evaluate(() => localStorage.removeItem('qa.hosted'));
+      checks.push(`${size.width}: on its own, Reply says to open Calendar inside Wizard`);
       await shut();
       await setSwitch(context, false);
       assert.deepEqual(writes, []);
