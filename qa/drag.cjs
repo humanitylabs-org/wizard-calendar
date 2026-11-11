@@ -1,0 +1,183 @@
+/* Drag to move and resize (issue 19, switch drag-events, off by default).
+ * - Off: events carry no drag classes and a drag changes nothing.
+ * - On: an all-day bar moves between days; a timed event moves in 15-minute steps and across Week's day columns, and
+ *   its bottom edge resizes it; each drop saves through api/live/update (same account and calendar as the editor) and
+ *   offers Undo, which saves the old times back. A repeating event asks "This event" first. An invite you didn't
+ *   organise doesn't move (not-allowed cursor). Esc cancels a drag. Touch: a short hold, then drag.
+ * Run against qa/live_fake.py (loopback dev mode, WIZARD_CORE_DIR=.runtime/core):
+ *   CALENDAR_LIVE_URL=<qa/live_fake.py> node qa/drag.cjs */
+const {chromium} = require('playwright');
+const path = require('node:path'), assert = require('node:assert/strict');
+const base = process.env.CALENDAR_LIVE_URL || 'http://127.0.0.1:18930';
+const shots = process.env.SHOTS_DIR || '';
+const G = (n) => `live:google:me@gmail.com|primary|google-${n}`;
+const sel = (id) => `[data-ev="${id}"]`;
+(async () => {
+  const browserPath = process.env.BROWSER_PATH;
+  const browser = await chromium.launch(browserPath ? {headless:true, executablePath:browserPath} : {headless:true, channel:process.env.BROWSER_CHANNEL || 'chrome'});
+  const checks = [], errors = [];
+  const shot = async (page, name) => { if (shots) await page.screenshot({path: path.join(shots, name + '.png')}); };
+  const setSwitch = (ctx, on) => ctx.request.post(base+'/api/switches', {headers:{'X-Wizard-Switch':'1', Origin:base}, data:{id:'drag-events', on}});
+  try {
+    const context = await browser.newContext({viewport:{width:1280, height:900}});
+    await context.clock.setFixedTime(new Date('2026-11-04T10:00:00+07:00'));
+    const updates = [];
+    const page = await context.newPage();
+    page.on('pageerror', e => errors.push(String(e)));
+    page.on('request', (r) => { if (r.method() === 'POST' && r.url().endsWith('/api/live/update')) updates.push(r.postDataJSON()); });
+    const open = async () => {
+      await page.goto(base+'/');
+      await page.waitForFunction(() => /visible events/.test(document.querySelector('[data-status]').textContent));
+      await page.locator('[data-mode="week"]').click();
+      await page.waitForSelector(sel(G(1)));
+    };
+    const toastSays = (re) => page.waitForFunction((src) => { const b = document.querySelector('[data-undo]'); return b && !b.hidden && new RegExp(src).test(b.textContent); }, re.source);
+    // The page re-renders after each save (load), so wait for the event to settle before measuring it.
+    const box = async (s) => { let b = null; for (let i = 0; i < 20 && !b; i++) { await page.waitForTimeout(i ? 100 : 0); b = await page.locator(s).first().boundingBox().catch(() => null); } assert.ok(b, s); return b; };
+    const hour = () => page.evaluate(() => parseFloat(getComputedStyle(document.querySelector('[data-time]')).getPropertyValue('--hour')));
+    const colWidth = async () => (await box('[data-tin] .col')).width;
+    const drag = async (s, dx, dy, opts = {}) => {
+      const b = await box(s), x = b.x + b.width / 2, y = opts.edge ? b.y + b.height - 1.5 : b.y + Math.min(4, b.height / 3);
+      await page.mouse.move(x, y); await page.mouse.down();
+      for (let i = 1; i <= 6; i++) await page.mouse.move(x + dx * i / 6, y + dy * i / 6);
+      if (opts.during) await opts.during();
+      await page.mouse.up();
+    };
+
+    // ---- switch off (the default) ----
+    assert.equal((await setSwitch(context, false)).status(), 200);
+    await open();
+    assert.equal(await page.locator('.dz, .nodrag, .rsz').count(), 0, 'no drag affordances while the switch is off');
+    await drag(sel(G(3)), 140, 0);
+    await page.waitForTimeout(300);
+    assert.equal(updates.length, 0, 'switch off: a drag saves nothing');
+    checks.push('switch off: no drag handles, a drag changes nothing');
+    if (await page.locator('[data-sheet]').isVisible()) { await page.evaluate(() => history.back()); await page.waitForFunction(() => document.querySelector('[data-sheet]').hidden); }
+
+    // ---- switch on ----
+    assert.equal((await setSwitch(context, true)).status(), 200);
+    await open();
+    assert.ok(await page.locator(`${sel(G(1))}.dz`).count(), 'an event you organise is draggable');
+    assert.ok(await page.locator(`${sel(G(2))}.nodrag`).count(), "an invite you didn't organise is not");
+    assert.ok(await page.locator(`${sel(G(1))} .rsz`).count(), 'a resize handle on the bottom edge');
+    const cw = await colWidth(), H = await hour();
+
+    // All-day: Trip (Fri 6 – Sat 7) one day later.
+    await drag(sel(G(3)), cw, 0);
+    await page.waitForSelector('[data-undo]:not([hidden])');
+    assert.deepEqual(updates.at(-1), {account:'live:google:me@gmail.com', calendar_id:'primary', id:'google-3', start:'2026-11-07', end:'2026-11-09'});
+    assert.equal(await page.locator('[data-sheet]').isVisible(), false, 'dropping does not open the event');
+    assert.match(await page.locator('[data-undo]').textContent(), /Event moved\s*Undo/);
+    await shot(page, 'drag-undo');
+    checks.push('all-day bar dragged one day: saves 7–9 Nov through api/live/update, shows Undo');
+    const nu = updates.length;
+    await page.locator('[data-undo-btn]').click();
+    await page.waitForFunction(() => document.querySelector('[data-undo]').hidden);
+    for (let i = 0; i < 40 && updates.length === nu; i++) await page.waitForTimeout(50);
+    await page.waitForLoadState('networkidle');
+    assert.deepEqual(updates.at(-1), {account:'live:google:me@gmail.com', calendar_id:'primary', id:'google-3', start:'2026-11-06', end:'2026-11-08'});
+    checks.push('Undo saves the old dates back');
+
+    // Invite you didn't organise: not-allowed cursor, nothing saved, nothing opened.
+    const before = updates.length;
+    let cursor = '';
+    await drag(sel(G(2)), 0, H, {during: async () => { cursor = await page.evaluate(() => document.documentElement.classList.contains('wc-nodrop') && getComputedStyle(document.querySelector('.blk')).cursor); }});
+    await page.waitForTimeout(300);
+    assert.equal(cursor, 'not-allowed');
+    assert.equal(updates.length, before, 'an invite does not move');
+    assert.equal(await page.locator('[data-sheet]').isVisible(), false);
+    checks.push("an invite you didn't organise shows a not-allowed cursor and doesn't move");
+
+    // Esc during a drag cancels it.
+    let ghost = '';
+    await page.mouse.move(0, 0);
+    {
+      const b = await box(sel(G(1))), x = b.x + b.width / 2, y = b.y + 4;
+      await page.mouse.move(x, y); await page.mouse.down();
+      for (let i = 1; i <= 6; i++) await page.mouse.move(x + cw * i / 6, y + H * i / 6);
+      ghost = await page.locator('.blk.ghost').textContent();
+      await shot(page, 'drag-ghost');
+      await page.keyboard.press('Escape');
+      assert.equal(await page.locator('.blk.ghost').count(), 0, 'Esc removes the ghost');
+      await page.mouse.up();
+    }
+    await page.waitForTimeout(300);
+    assert.equal(updates.length, before, 'Esc: nothing saved');
+    assert.equal(await page.locator('[data-sheet]').isVisible(), false);
+    assert.match(ghost, /Standup\s*10:00–10:15/, `ghost preview shows the new time: ${ghost}`);
+    checks.push('ghost preview shows the new start and end (10:00–10:15); Esc cancels the drag');
+
+    // Repeating timed event: one hour later and one day later (Week) -> asks first, then saves this event.
+    await drag(sel(G(1)), cw, H + 1);
+    await page.waitForSelector('[data-repeat-ask]');
+    assert.equal(await page.locator('[data-repeat="one"]').textContent(), 'This event');
+    assert.equal(await page.locator('[data-repeat="all"]').isDisabled(), true);
+    await shot(page, 'drag-repeat');
+    assert.equal(updates.length, before, 'nothing saved before the answer');
+    await page.evaluate(() => { document.querySelector('[data-undo]').hidden = true; });
+    await page.locator('[data-repeat="one"]').click();
+    await toastSays(/Event moved/);
+    assert.deepEqual(updates.at(-1), {account:'live:google:me@gmail.com', calendar_id:'primary', id:'google-1', start:'2026-11-03T10:00', end:'2026-11-03T10:15', time_zone:'Asia/Bangkok'});
+    checks.push('repeating event moved a day and an hour: asks This event, then saves 3 Nov 10:00–10:15 (Asia/Bangkok)');
+
+    // Cancel on the repeat question keeps it where it was.
+    const n2 = updates.length;
+    await drag(sel(G(1)), 0, H);
+    await page.waitForSelector('[data-repeat-ask]');
+    await page.locator('[data-repeat="cancel"]').click();
+    await page.waitForTimeout(300);
+    assert.equal(updates.length, n2);
+    // Esc on the question (or Back, or ✕) is Cancel too: the ghost goes, nothing saved.
+    await drag(sel(G(1)), 0, H);
+    await page.waitForSelector('[data-repeat-ask]');
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => document.querySelector('[data-sheet]').hidden && !document.querySelector('.blk.ghost'));
+    assert.equal(updates.length, n2);
+    checks.push('Cancel (or Esc) on the repeat question saves nothing and drops the ghost');
+
+    // Resize: drag the bottom edge half an hour down (snaps to 15 minutes).
+    await drag(sel(G(1)), 0, H / 2 + 2, {edge:true});
+    await page.waitForSelector('[data-repeat-ask]');
+    await page.evaluate(() => { document.querySelector('[data-undo]').hidden = true; });
+    await page.locator('[data-repeat="one"]').click();
+    await toastSays(/Event resized/);
+    assert.deepEqual(updates.at(-1), {account:'live:google:me@gmail.com', calendar_id:'primary', id:'google-1', start:'2026-11-02T09:00', end:'2026-11-02T09:45', time_zone:'Asia/Bangkok'});
+    checks.push('bottom edge dragged 30 min: saves 09:00–09:45 (Event resized, Undo)');
+
+    // A plain click still opens the event.
+    await page.locator(sel(G(3))).first().click();
+    await page.waitForSelector('[data-sheet] [data-edit]');
+    checks.push('a click without dragging still opens the event');
+    await context.close();
+
+    // ---- touch: hold, then drag (phone) ----
+    const phone = await browser.newContext({viewport:{width:390, height:844}, hasTouch:true, isMobile:true});
+    await phone.clock.setFixedTime(new Date('2026-11-04T10:00:00+07:00'));
+    const p2 = await phone.newPage();
+    const tUpdates = [];
+    p2.on('pageerror', e => errors.push(String(e)));
+    p2.on('request', (r) => { if (r.method() === 'POST' && r.url().endsWith('/api/live/update')) tUpdates.push(r.postDataJSON()); });
+    await p2.goto(base+'/');
+    await p2.waitForFunction(() => /visible events/.test(document.querySelector('[data-status]').textContent));
+    await p2.locator('[data-mode="day"]').click();
+    await p2.locator('[data-prev]').click(); await p2.locator('[data-prev]').click(); // Mon 2 Nov
+    await p2.waitForSelector(sel(G(1)));
+    const cdp = await phone.newCDPSession(p2);
+    const tb = await p2.locator(sel(G(1))).first().boundingBox(), H2 = await p2.evaluate(() => parseFloat(getComputedStyle(document.querySelector('[data-time]')).getPropertyValue('--hour')));
+    const tx = tb.x + 30, ty = tb.y + 4;
+    await cdp.send('Input.dispatchTouchEvent', {type:'touchStart', touchPoints:[{x:tx, y:ty}]});
+    await p2.waitForTimeout(600);
+    for (let i = 1; i <= 6; i++) await cdp.send('Input.dispatchTouchEvent', {type:'touchMove', touchPoints:[{x:tx, y:ty + 2 * H2 * i / 6}]});
+    await cdp.send('Input.dispatchTouchEvent', {type:'touchEnd', touchPoints:[]});
+    await p2.waitForSelector('[data-repeat-ask]');
+    await p2.locator('[data-repeat="one"]').click();
+    await p2.waitForSelector('[data-undo]:not([hidden])');
+    assert.deepEqual(tUpdates.at(-1), {account:'live:google:me@gmail.com', calendar_id:'primary', id:'google-1', start:'2026-11-02T11:00', end:'2026-11-02T11:15', time_zone:'Asia/Bangkok'});
+    await shot(p2, 'drag-phone-undo');
+    checks.push('touch: hold then drag two hours down in Day saves 11:00–11:15');
+    await phone.close();
+
+    assert.deepEqual(errors, []);
+    console.log(JSON.stringify({ok:true, checks}, null, 1));
+  } finally { await browser.close(); }
+})().catch(e => { console.error(e); process.exit(1); });

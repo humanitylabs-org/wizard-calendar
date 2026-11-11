@@ -37,7 +37,7 @@ SYNC_INTERVAL = max(0, int(os.environ.get('ICAL_SYNC_INTERVAL', '900')))
 MAX_BYTES = 4 * 1024 * 1024
 MAX_SOURCES = 20
 WEB = {'index.html', 'app.js', 'app.css', 'icon.svg', 'connect.js', 'settings.js'}
-VERSION = '0.3.11'
+VERSION = '0.3.12'
 # The owner: the Wizard shell's Tailscale login (one login, and his when WIZARD_OWNER_LOGINS names it). Owner routes are
 # refused on the box-local hosts (agents) unless a scratch QA server opts into a loopback single-owner dev mode.
 SHELL_AUTH = os.environ.get('WIZARD_SHELL_AUTH', 'tailscale-serve')
@@ -62,6 +62,9 @@ SWITCHES = [
     {'id': 'reply-on-event', 'name': 'Reply on an event',
      'description': 'A Reply button in event details opens an unsent Chats draft with the event attached. Calendar sends nothing.',
      'default': False, 'issues': ['humanitylabs-org/wizard-calendar#25']},
+    {'id': 'drag-events', 'name': 'Drag to move and resize',
+     'description': 'In Day and Week, drag an event you can change to another time or day, or drag its bottom edge to change how long it is. Snaps to 15 minutes; Undo right after.',
+     'default': False, 'issues': ['humanitylabs-org/wizard-calendar#19']},
 ]
 
 
