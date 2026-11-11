@@ -339,7 +339,13 @@
   // Calendar never sends anything. Shells without openContextDraft simply don't show Reply. The draft is built from
   // the event already on screen, so the call stays synchronous inside the tap (user activation).
   // Behind the owner switch reply-on-event (issue 25), off by default.
-  const canReply = () => switchOn('reply-on-event') && typeof window.WizardApp?.nav?.openContextDraft === 'function';
+  // The draft needs Calendar open INSIDE a Wizard window. app-client always defines openContextDraft, so on its own
+  // (a browser tab or a home-screen icon) Reply used to show and fail with the shell's raw "Context drafts need the
+  // verified Wizard host" (issue 25 kick-back). There it now says how to reply instead, and makes no shell call.
+  const replyHosted = () => window.WizardApp?.hosted === true && typeof window.WizardApp?.nav?.openContextDraft === 'function';
+  const onItsOwn = () => { try { return window.WizardApp?.hosted !== true && window.parent === window; } catch { return false; } };
+  const canReply = () => switchOn('reply-on-event') && (replyHosted() || onItsOwn());
+  const REPLY_OUTSIDE = 'Reply works when Calendar is open inside Wizard. Open Calendar from your Wizard, then tap Reply. Nothing sent.';
   const fnv = (s) => { let h = 0x811c9dc5; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193); } return (h >>> 0).toString(36); };
   // Event ids carry '|', ':' and long provider ids: keep a readable part plus a hash so the key stays unique and valid.
   const replyId = (id) => `ev-${String(id).replace(/[^A-Za-z0-9_-]+/g, '-').slice(-60).replace(/^-+/, '')}-${fnv(String(id))}`.slice(0, 128);
@@ -370,13 +376,24 @@
   }
   function reply(btn) {
     const e = evById(btn.dataset.reply); if (!e) return;
+    if (onItsOwn()) { say(REPLY_OUTSIDE, false); return; }
+    const open = () => window.WizardApp.nav.openContextDraft(replyContext(e));
     try {
-      const receipt = window.WizardApp.nav.openContextDraft(replyContext(e));
+      let receipt;
+      try { receipt = open(); } catch (err) {
+        // Framed, but the direct shell connection was not made when Calendar loaded: connect again (synchronous,
+        // still inside this tap) and try once more.
+        if (!/verified Wizard host/i.test(String(err?.message))) throw err;
+        WizardApp.ready({ name: 'Calendar', version: VERSION });
+        receipt = open();
+      }
       if (receipt?.kind !== 'unsent-draft' || receipt.sent !== false) throw new Error('Could not confirm an unsent draft. Nothing was sent.');
       say('Draft opened in Chats with this event attached. Nothing sent.', true);
     } catch (err) {
       const m = String(err?.message || 'Could not open Chats.');
-      say(m === 'Context draft unavailable' ? 'Reload Wizard (refresh the whole page) to turn on Reply. Nothing sent.' : /Nothing (was )?sent/.test(m) ? m : `${m}. Nothing sent.`.replace(/\.\. /, '. '));
+      say(m === 'Context draft unavailable' ? 'Reload Wizard (refresh the whole page) to turn on Reply. Nothing sent.'
+        : /verified Wizard host/i.test(m) ? REPLY_OUTSIDE
+        : /Nothing (was )?sent/.test(m) ? m : `${m}. Nothing sent.`.replace(/\.\. /, '. '));
     }
   }
   // role/aria-modal only while open: the Wizard shell reads them to confirm a Back press closed something.
@@ -579,7 +596,8 @@
     document.querySelector('[data-status]').textContent = 'Wizard core is missing. Follow the standalone setup in README.md.';
     return;
   }
-  WizardApp.ready({ name: 'Calendar', version: '0.3.8' });
+  const VERSION = '0.3.9';
+  WizardApp.ready({ name: 'Calendar', version: VERSION });
 
   // Owner feature switches (GET/POST api/switches, wizard.app-switches/1). All off by default; the Tracker's Try it
   // flips the same box state, so this page re-reads them whenever it becomes visible.
