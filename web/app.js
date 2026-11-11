@@ -334,7 +334,7 @@
       ${desc ? `<div class="row"><span class="k">Notes</span><span class="v">${esc(desc)}</span></div>` : ''}
       ${e.live?.by_agent ? '<div class="row" data-by-agent><span class="k">Changed</span><span class="v">by your agent</span></div>' : ''}
       <div class="acts">${canReply() ? `<button class="wz-button secondary" type="button" data-reply="${esc(e.id)}">Reply</button>` : ''}${e.meet ? `<a href="${esc(e.meet)}" target="_blank" rel="noopener">Join Meet</a>` : ''}${maps ? `<a href="${esc(maps)}" target="_blank" rel="noopener">Map</a>` : ''}${e.link ? `<a href="${esc(e.link)}" target="_blank" rel="noopener">${e.live ? 'Open in ' + (cal?.source === 'microsoft' ? 'Outlook' : 'Google Calendar') : 'Open in Google Calendar'}</a>` : ''}</div>
-      ${e.live ? liveActions(e) : readOnlyNote()}<div class="msg" data-c-msg role="status"></div>`;
+      ${e.live ? liveActions(e) : readOnlyNote(cal)}<div class="msg" data-c-msg role="status"></div>`;
     showSheet();
     if (!sheetOpen) { sheetOpen = true; sheetBack = WizardApp.back.push(() => { closeSheet(); return true; }); }
   }
@@ -402,12 +402,14 @@
   // role/aria-modal only while open: the Wizard shell reads them to confirm a Back press closed something.
   // ---- read-only calendars (issue 29): private iCal links and snapshots can't be changed from anywhere, so say so and
   // offer the calendars that can (Google, Microsoft) instead of showing an event with no way to change it. ----
-  function readOnlyNote() {
-    if (liveCals().length) return '<p class="note" data-read-only>This event comes from a private iCal link, which is read-only. Change it in Google Calendar; it shows here on the next sync.</p>';
-    return `<p class="note" data-read-only>This event comes from a private iCal link, which is read-only. Connect Google or Microsoft to add, change and delete events and answer invites here.</p><div class="live-acts"><button class="btn primary" data-connect-any>Connect Google or Microsoft</button></div>`;
+  function readOnlyNote(cal) {
+    // Connected accounts (issue 31) shares calendars read-only: it has no way to change an event.
+    const from = cal?.source === 'connected-accounts' ? 'Connected accounts, which shares calendars read-only' : 'a private iCal link, which is read-only';
+    if (liveCals().length) return `<p class="note" data-read-only>This event comes from ${from}. Change it in Google Calendar; it shows here on the next sync.</p>`;
+    return `<p class="note" data-read-only>This event comes from ${from}. Connect Google or Microsoft to add, change and delete events and answer invites here.</p><div class="live-acts"><button class="btn primary" data-connect-any>Connect Google or Microsoft</button></div>`;
   }
   function writableHelp() {
-    $('[data-sheet]').innerHTML = `${SHEET_TOP}<h2>Add events</h2><p class="note" data-writable-help>Your calendars here come from private iCal links, which are read-only. Connect Google or Microsoft to add, change and delete events and answer invites in Calendar.</p>
+    $('[data-sheet]').innerHTML = `${SHEET_TOP}<h2>Add events</h2><p class="note" data-writable-help>${(doc?.calendars || []).some((c) => c.source === 'connected-accounts') ? 'Your calendars here come from Connected accounts or private iCal links, which are read-only.' : 'Your calendars here come from private iCal links, which are read-only.'} Connect Google or Microsoft to add, change and delete events and answer invites in Calendar.</p>
       <div class="hello-list"><button class="hello-row" data-connect="google"><span class="tile">G</span><span class="main"><b>Google</b><small>Google Calendar</small></span><span class="chev" aria-hidden="true">›</span></button><button class="hello-row" data-connect="microsoft"><span class="tile">M</span><span class="main"><b>Microsoft</b><small>Outlook, Hotmail, Microsoft 365</small></span><span class="chev" aria-hidden="true">›</span></button></div>`;
     showSheet();
     if (!sheetOpen) { sheetOpen = true; sheetBack = WizardApp.back.push(() => { closeSheet(); return true; }); }
@@ -629,7 +631,7 @@
     document.querySelector('[data-status]').textContent = 'Wizard core is missing. Follow the standalone setup in README.md.';
     return;
   }
-  const VERSION = '0.3.10';
+  const VERSION = '0.3.11';
   WizardApp.ready({ name: 'Calendar', version: VERSION });
 
   // Owner feature switches (GET/POST api/switches, wizard.app-switches/1). All off by default; the Tracker's Try it
@@ -676,7 +678,7 @@
   // and the snapshot (read-only). The private iCal URL is submitted once and never rendered back into the page.
   const SHEET_TOP = '<div class="sh-top"><span class="grab"></span><button class="x" data-close aria-label="Close">✕</button></div>';
   function openCals() {
-    const list = (doc?.calendars || []).filter(c => !c.live).map(c => `<button class="cal${c.hidden ? ' off' : ''}" data-vis="${esc(c.id)}" role="switch" aria-checked="${!c.hidden}"><i style="background:${esc(c.color)}"></i><span class="nm">${esc(c.name)}<small>${c.hidden ? 'Hidden' : `${c.count} events`}</small></span><span class="sw"></span></button>`).join('');
+    const list = (doc?.calendars || []).filter(c => !c.live && !c.readOnly).map(c => `<button class="cal${c.hidden ? ' off' : ''}" data-vis="${esc(c.id)}" role="switch" aria-checked="${!c.hidden}"><i style="background:${esc(c.color)}"></i><span class="nm">${esc(c.name)}<small>${c.hidden ? 'Hidden' : `${c.count} events`}</small></span><span class="sw"></span></button>`).join('');
     const sources = (doc?.connected || []).map(source => `<div class="source"><span class="nm">${esc(source.name)}<small>${source.error ? esc(source.error) : source.lastSyncedAt ? `Updated ${esc(fmtSynced(source.lastSyncedAt))}` : 'Google iCal'}</small></span><button class="remove" data-remove-source="${esc(source.id)}">Remove</button></div>`).join('');
     const sync = (doc?.connected || []).length ? `<div class="sync"><span>${doc?.syncedAt ? `Updated ${esc(fmtSynced(doc.syncedAt))}` : 'Not updated yet'}</span><button class="btn" data-sync>Sync now</button></div>` : '';
     $('[data-sheet]').innerHTML = `${SHEET_TOP}<h2>Settings</h2><div class="wcs" data-wcs></div>
