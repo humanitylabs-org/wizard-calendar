@@ -37,7 +37,7 @@ SYNC_INTERVAL = max(0, int(os.environ.get('ICAL_SYNC_INTERVAL', '900')))
 MAX_BYTES = 4 * 1024 * 1024
 MAX_SOURCES = 20
 WEB = {'index.html', 'app.js', 'app.css', 'icon.svg', 'connect.js', 'settings.js'}
-VERSION = '0.3.13'
+VERSION = '0.3.14'
 # The owner: the Wizard shell's Tailscale login (one login, and his when WIZARD_OWNER_LOGINS names it). Owner routes are
 # refused on the box-local hosts (agents) unless a scratch QA server opts into a loopback single-owner dev mode.
 SHELL_AUTH = os.environ.get('WIZARD_SHELL_AUTH', 'tailscale-serve')
@@ -59,9 +59,6 @@ SWITCHES = [
     {'id': 'trackpad-swipe', 'name': 'Trackpad day swipe',
      'description': 'In Day and Week, a two-finger sideways swipe (or Shift + mouse wheel) moves the calendar one day at a time, like Mac Calendar.',
      'default': False, 'issues': ['humanitylabs-org/wizard-calendar#21']},
-    {'id': 'reply-on-event', 'name': 'Reply on an event',
-     'description': 'A Reply button in event details opens an unsent Chats draft with the event attached. Calendar sends nothing.',
-     'default': False, 'issues': ['humanitylabs-org/wizard-calendar#25']},
     {'id': 'drag-events', 'name': 'Drag to move and resize',
      'description': 'In Day and Week, drag an event you can change to another time or day, or drag its bottom edge to change how long it is. Snaps to 15 minutes; Undo right after. A repeating event asks: This event, or All events (every repeat moves the same amount, same day).',
      'default': False, 'issues': ['humanitylabs-org/wizard-calendar#19', 'humanitylabs-org/wizard-calendar#33']},
@@ -71,7 +68,19 @@ SWITCHES = [
 def _saved_switches():
     try: saved = _read_json(DATA / 'switches.json', {})
     except (OSError, ValueError): saved = {}  # unreadable state falls back to the defaults (off)
-    return saved if isinstance(saved, dict) else {}
+    if not isinstance(saved, dict): return {}
+    # Only switches Calendar still has: a removed switch's saved value (e.g. reply-on-event, dropped in issue 35)
+    # is ignored here and dropped from the file on start and on the next change.
+    known = {s['id'] for s in SWITCHES}
+    return {k: v for k, v in saved.items() if k in known and isinstance(v, bool)}
+
+
+def prune_switches():
+    with LOCK:
+        try: raw = _read_json(DATA / 'switches.json', None)
+        except (OSError, ValueError): return
+        if isinstance(raw, dict) and raw != _saved_switches():
+            _save_path(DATA / 'switches.json', _saved_switches())
 
 
 def switches_doc():
@@ -82,7 +91,7 @@ def switches_doc():
 
 def set_switch(switch_id, on):
     with LOCK:
-        saved = {k: v for k, v in _saved_switches().items() if k in {s['id'] for s in SWITCHES} and isinstance(v, bool)}
+        saved = _saved_switches()
         saved[switch_id] = on
         _save_path(DATA / 'switches.json', saved)
     return switches_doc()
@@ -687,6 +696,7 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == '__main__':
     DATA.mkdir(parents=True, exist_ok=True)
+    prune_switches()
     if SYNC_INTERVAL > 0:
         threading.Thread(target=_sync_loop, name='ical-sync', daemon=True).start()
     ThreadingHTTPServer((BIND, PORT), Handler).serve_forever()
