@@ -2,7 +2,7 @@
 """A disposable Calendar with two fake source apps (qa/live.py's Fake: synthetic Google and Microsoft accounts speaking
 wizard.mail-calendar/1) and the owner grant in place, for browser QA. Nothing talks to Google, Microsoft or Composio.
 
-PORT=18930 python3 qa/live_fake.py   (prints "ready <url>" once Calendar answers; Ctrl-C stops everything)
+PORT=18930 python3 qa/live_fake.py   (CONNECTED_ACCOUNTS=1 adds qa/connected.py's fake Connected accounts; prints "ready <url>" once Calendar answers; Ctrl-C stops everything)
 """
 import json
 import os
@@ -23,7 +23,13 @@ def main():
     g.suggestions = m.suggestions = []
     port, data = int(os.environ.get('PORT', '18930')), tempfile.mkdtemp()
     grants = Path(data) / 'grants.json'
-    grants.write_text(json.dumps({'outgoing': {'wizard-google': 'grant-google-0123456789', 'wizard-microsoft': 'grant-microsoft-0123456789'}}))
+    doc = {'outgoing': {'wizard-google': 'grant-google-0123456789', 'wizard-microsoft': 'grant-microsoft-0123456789'}}
+    if os.environ.get('CONNECTED_ACCOUNTS') == '1':
+        import connected  # noqa: E402  (the Connected accounts fake)
+        ca = connected.FakeConnected()
+        doc['outgoing']['connected-accounts'] = connected.GRANT
+        doc['provider_endpoints'] = {'connected-accounts': ca.base}
+    grants.write_text(json.dumps(doc))
     env = dict(os.environ, PORT=str(port), DATA_DIR=data, ICAL_SYNC_INTERVAL='0', CALENDAR_TIMEZONE='Asia/Bangkok',
                CALENDAR_SOURCES=f'google={g.base},microsoft={m.base}', CALENDAR_DEV_MODE='loopback-single-owner',
                WIZARD_GRANTS_FILE=str(grants))

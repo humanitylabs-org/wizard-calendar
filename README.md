@@ -8,6 +8,10 @@ keep the data volume and backups private, and never paste the link into chat or 
 Advanced snapshot import and operator-managed connectors remain available; see
 [OSCAR-SETUP.md](OSCAR-SETUP.md).
 
+Calendars the owner shares from **Connected accounts** (`connected-accounts`) show read-only next to the Google and
+Microsoft calendars (`app/connected.py`; an account also connected in the Google app shows once, from there).
+`CALENDAR_CONNECTED_ACCOUNTS=off` leaves them out. Test: `python3 qa/connected.py` and `node qa/connected.cjs`.
+
 ## Install independently — no app image build
 
 Prerequisites: Docker with Compose v2, Python 3.10+, network access for the pinned Python

@@ -15,6 +15,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
+import connected
 import ical_feed
 import live
 
@@ -36,7 +37,7 @@ SYNC_INTERVAL = max(0, int(os.environ.get('ICAL_SYNC_INTERVAL', '900')))
 MAX_BYTES = 4 * 1024 * 1024
 MAX_SOURCES = 20
 WEB = {'index.html', 'app.js', 'app.css', 'icon.svg', 'connect.js', 'settings.js'}
-VERSION = '0.3.10'
+VERSION = '0.3.11'
 # The owner: the Wizard shell's Tailscale login (one login, and his when WIZARD_OWNER_LOGINS names it). Owner routes are
 # refused on the box-local hosts (agents) unless a scratch QA server opts into a loopback single-owner dev mode.
 SHELL_AUTH = os.environ.get('WIZARD_SHELL_AUTH', 'tailscale-serve')
@@ -46,6 +47,8 @@ GRANTS_FILE = os.environ.get('WIZARD_GRANTS_FILE', '/wizard/grants.json')
 # Connected Google / Microsoft calendars (read and write) through the source apps on the Wizard app network.
 LIVE = None if os.environ.get('CALENDAR_LIVE', 'on') == 'off' else live.Live(live.parse_sources(os.environ.get('CALENDAR_SOURCES')),
                                                                               grants_file=GRANTS_FILE)
+# Connected accounts calendars (read-only; issue 31). CALENDAR_CONNECTED_ACCOUNTS=off leaves them out.
+CONNECTED = connected.from_env(GRANTS_FILE)
 LIVE_WINDOW = (-45, 120)  # days around today when a caller does not ask for a range
 # Owner feature switches (wizard.app-switches/1, wizard-os docs/APP_SWITCHES.md). Off by default; the state lives on
 # the box in DATA/switches.json, so this page, the Tracker's Try it (through the App Manager) and the agent see one state.
@@ -416,6 +419,15 @@ def view(start=None, end=None, caller=None):
             if exc.code == 'invalid_range':
                 raise
             errors = errors + [exc.message]
+    if CONNECTED is not None:
+        # Connected accounts calendars (issue 31): read-only, next to Google and Microsoft. An account that is also
+        # connected in the Google app shows once, from the Google app, where it can be changed.
+        first, last = live_range or _live_range(start, end)
+        shared = CONNECTED.window(first, last, skip_emails=[a['email'] for a in accounts if a.get('source') == 'google' and a.get('calendar')])
+        for calendar_row in shared['calendars']:
+            doc['calendars'].append(dict(calendar_row, hidden=False, ok=True, count=sum(e['cal'] == calendar_row['id'] for e in shared['events'])))
+        doc['events'] = doc['events'] + shared['events']
+        errors = errors + shared['errors']
     has_live = any(c.get('live') for c in doc['calendars'])
     return dict(
         doc,
