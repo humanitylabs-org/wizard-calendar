@@ -635,7 +635,7 @@
     document.querySelector('[data-status]').textContent = 'Wizard core is missing. Follow the standalone setup in README.md.';
     return;
   }
-  const VERSION = '0.3.12';
+  const VERSION = '0.3.13';
   WizardApp.ready({ name: 'Calendar', version: VERSION });
 
   // Owner feature switches (GET/POST api/switches, wizard.app-switches/1). All off by default; the Tracker's Try it
@@ -1032,27 +1032,40 @@
     const next = t.allDay ? { start: t.start, end: t.end } : { start: wallStr(t.s), end: wallStr(t.e), time_zone: TZ };
     const prev = d.e.allDay ? { start: d.e.start.slice(0, 10), end: d.e.end.slice(0, 10) }
       : { start: wallStr(wallOf(d.e.start)), end: wallStr(wallOf(d.e.end)), time_zone: TZ };
-    dropSave(d.e, next, prev, d.kind === 'resize' ? 'Event resized' : 'Event moved');
+    // Every repeat moves by the same minutes (issue 33): only a timed event that stays on its own day, because the
+    // repeat rule (e.g. every Monday) is not rewritten.
+    const shift = t.allDay ? null : { start: wallMins(wallOf(d.e.start), t.s), end: wallMins(wallOf(d.e.end), t.e),
+      sameDay: t.s.day === wallOf(d.e.start).day };
+    dropSave(d.e, next, prev, d.kind === 'resize' ? 'resized' : 'moved', shift);
   }
-  // Repeating events: ask before changing. The source apps change one occurrence by its own id; moving every repeat at
-  // once needs the series in the mail-calendar contract (follow-up issue 33), so only "This event" is offered for now.
-  function askRepeat() {
+  // Repeating events: ask before changing. "This event" changes one occurrence by its own id. "All events" (issue 33)
+  // moves the whole series by the same minutes through the source app (contract 1.5 `scope: series`): offered when the
+  // source names the series (`series_id`) and the drop keeps the event on its own day; otherwise it says where to do it.
+  // Resolves 'one', 'all' or null (Cancel, Esc, Back).
+  function askRepeat(e, shift) {
+    const why = !shift ? 'To move every repeat of an all-day event, use Google Calendar or Outlook.'
+      : !e.live.series_id ? 'Moving every repeat needs a newer Google or Microsoft app on this Wizard; until then, do that in Google Calendar or Outlook.'
+        : !shift.sameDay ? 'All events can move to another time on the same day. To move every repeat to another day, use Google Calendar or Outlook.' : '';
     return new Promise((done) => {
-      $('[data-sheet]').innerHTML = `${SHEET_TOP}<h2>Change a repeating event</h2><p class="note" data-repeat-ask>Change only this event, or every repeat? Changing every repeat at once isn't possible from Calendar yet: do that in Google Calendar or Outlook.</p>
-        <div class="live-acts"><button class="btn" data-repeat="cancel">Cancel</button><button class="btn" data-repeat="all" disabled title="Not possible from Calendar yet">All events</button><button class="btn primary" data-repeat="one">This event</button></div>`;
+      $('[data-sheet]').innerHTML = `${SHEET_TOP}<h2>Change a repeating event</h2><p class="note" data-repeat-ask>Change only this event, or every repeat?${why ? ` ${esc(why)}` : ' Every repeat moves by the same amount.'}</p>
+        <div class="live-acts"><button class="btn" data-repeat="cancel">Cancel</button><button class="btn" data-repeat="all"${why ? ` disabled title="${esc(why)}"` : ''}>All events</button><button class="btn primary" data-repeat="one">This event</button></div>`;
       showSheet();
       if (!sheetOpen) { sheetOpen = true; sheetBack = WizardApp.back.push(() => { closeSheet(); return true; }); }
       repeatAsk = done;
-      for (const b of document.querySelectorAll('[data-repeat]')) b.addEventListener('click', (ev) => { ev.stopPropagation(); repeatAsk = null; closeSheet(); done(b.dataset.repeat === 'one'); });
+      for (const b of document.querySelectorAll('[data-repeat]')) b.addEventListener('click', (ev) => { ev.stopPropagation(); repeatAsk = null; closeSheet(); done(b.dataset.repeat === 'cancel' ? null : b.dataset.repeat); });
     });
   }
-  async function dropSave(e, next, prev, label) {
-    if (e.live.recurring && !(await askRepeat())) return renderTime();
+  async function dropSave(e, next, prev, verb, shift) {
+    const which = e.live.recurring ? await askRepeat(e, shift) : 'one';
+    if (!which) return renderTime();
+    const series = (k) => ({ account: e.live.account, calendar_id: e.live.calendar_id, id: e.live.series_id, scope: 'series',
+      shift_start_minutes: k * shift.start, shift_end_minutes: k * shift.end });
+    const [doIt, undoIt] = which === 'all' ? [series(1), series(-1)] : [{ ...target(e), ...next }, { ...target(e), ...prev }];
     try {
-      await livePost('api/live/update', { ...target(e), ...next });
+      await livePost('api/live/update', doIt);
       await load(false).catch(() => {});
-      undoToast(label, async () => {
-        try { await livePost('api/live/update', { ...target(e), ...prev }); toast('Change undone'); }
+      undoToast(which === 'all' ? `Every repeat ${verb}` : `Event ${verb}`, async () => {
+        try { await livePost('api/live/update', undoIt); toast('Change undone'); }
         catch (err) { toast(err.message); }
         await load(false).catch(() => {});
       });
