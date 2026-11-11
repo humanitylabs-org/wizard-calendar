@@ -165,5 +165,40 @@
     opts.page(`Disconnect ${a.email}?`, [msg, err, acts]);
   }
 
-  window.WizardCalendarSettings = { render, LEVEL_TEXT };
+  // ---------- right after connecting (issue 29): choose what agents may do with this calendar ----------
+  // The same levels as Settings > Agent access, read from and kept by the source app. Resolves false when there is
+  // nothing to ask (older source app without the setting, or no account was connected).
+  async function chooseAccess(source, o) {
+    const c = client(source);
+    const v = await c.api('api/calendar-settings');
+    const access = v.agent_access && v.agent_access.calendar ? v.agent_access : null;
+    if (!access || !(v.accounts || []).length) return false;
+    const current = access.calendar;
+    const list = el('div', null, 'wcs-group wcs-choices', { role: 'list' });
+    const err = el('p', '', 'wcs-bad', { role: 'alert' });
+    for (const l of access.calendar_levels || []) {
+      const b = button('', async () => {
+        for (const x of list.querySelectorAll('button')) x.disabled = true;
+        err.textContent = '';
+        try {
+          await c.api('api/agent-access', { calendar: l.id });
+          o.say(`Agent access: ${l.label}. Change it any time in Settings.`, true);
+          o.done();
+        } catch (e) { err.textContent = e.message; for (const x of list.querySelectorAll('button')) x.disabled = false; }
+      }, 'wcs-row wcs-choice' + (l.id === current ? ' wcs-current' : ''), { role: 'listitem', 'data-level': l.id, 'aria-pressed': String(l.id === current) });
+      const main = el('span', null, 'wcs-main');
+      main.append(el('b', l.label + (l.recommended ? ' (recommended)' : '')), el('small', LEVEL_TEXT[l.id] || l.what || ''));
+      b.append(main);
+      list.append(b);
+    }
+    const now = (access.calendar_levels || []).find(l => l.id === current);
+    const later = button(now ? `Keep ${now.label}` : 'Not now', () => o.done(), 'btn wcs-later');
+    const acts = el('div', null, 'wcs-actions'); acts.append(later);
+    o.page('What may your agents do?', [
+      el('p', `Your ${NAMES[source] || ''} calendar is connected. Choose what your agents may do with it. You can change this any time in Settings > Agent access.`, 'wcs-text'),
+      list, err, acts]);
+    return true;
+  }
+
+  window.WizardCalendarSettings = { render, chooseAccess, LEVEL_TEXT };
 })();

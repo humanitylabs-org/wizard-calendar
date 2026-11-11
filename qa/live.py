@@ -41,7 +41,8 @@ class Fake:
              'start': {'date_time': '2026-11-03T12:00:00', 'time_zone': 'Asia/Bangkok'}, 'end': {'date_time': '2026-11-03T13:00:00', 'time_zone': 'Asia/Bangkok'},
              'attendees': [{'email': email, 'self': True, 'response': 'none'}, {'email': 'anna@example.com', 'name': 'Anna', 'organizer': True}],
              'is_organizer': False, 'my_response': 'none', 'link': 'javascript:alert(1)', 'online_meeting': {'url': 'https://meet.example/x'}},
-            {'id': f'{sid}-3', 'calendar_id': 'primary', 'title': 'Trip', 'all_day': True, 'start': {'date': '2026-11-06'}, 'end': {'date': '2026-11-08'}},
+            {'id': f'{sid}-3', 'calendar_id': 'primary', 'title': 'Trip', 'all_day': True, 'start': {'date': '2026-11-06'}, 'end': {'date': '2026-11-08'},
+             'by_agent': True},
         ]
         fake = self
 
@@ -123,7 +124,8 @@ def main():
 
         owner = {'Origin': f'http://{host}', 'Sec-Fetch-Site': 'same-origin', 'X-Wizard-Request': 'calendar'}
         status, health = req('/healthz')
-        check('health reports 0.3.6', status == 200 and health['version'] == '0.3.6')
+        version = next(l.split("'")[1] for l in (ROOT / 'app/server.py').read_text().splitlines() if l.startswith('VERSION = '))
+        check('health reports the version', status == 200 and health['version'] == version)
         status, live = req('/api/live')
         check('both sources connected', status == 200 and live['connected'] and len(live['sources']) == 2)
         status, view = req('/api/events?from=2026-10-12&to=2026-12-21')
@@ -138,6 +140,7 @@ def main():
         check('invite flags', ev['google-2']['live']['invited'] and ev['google-2']['live']['my_response'] == 'none' and ev['google-1']['live']['is_organizer'])
         check('unsafe link dropped, meeting kept', ev['google-2']['link'] == '' and ev['google-2']['meet'] == 'https://meet.example/x')
         check('guests are plain text', ev['google-2']['guests'] == 'Anna')
+        check('an agent-made event says so (issue 29)', ev['google-3']['live']['by_agent'] is True and ev['google-1']['live']['by_agent'] is False)
         listed = [c for c in g.calls if c[0] == 'calendar_list_events'][-1]
         check('asks the source for the window', listed[1]['time_min'] == '2026-10-12T00:00:00Z' and listed[1]['time_max'] == '2026-12-21T00:00:00Z' and listed[2] == 'wizard-calendar')
         status, _ = req('/api/events?from=2026-12-21&to=2026-10-12')
