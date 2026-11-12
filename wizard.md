@@ -4,7 +4,7 @@ id: wizard-calendar
 name: Calendar
 type: view
 category: app
-version: 0.3.14
+version: 0.3.15
 summary: Your Google and Microsoft calendars in one view. Add, edit and answer invites; private iCal links and snapshots too.
 license: MIT
 source: https://github.com/humanitylabs-org/wizard-calendar
