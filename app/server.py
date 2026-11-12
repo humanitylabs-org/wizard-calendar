@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import datetime as dt
 import hashlib
+import hmac
 import json
 import mimetypes
 import os
 import re
 import tempfile
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -37,7 +39,7 @@ SYNC_INTERVAL = max(0, int(os.environ.get('ICAL_SYNC_INTERVAL', '900')))
 MAX_BYTES = 4 * 1024 * 1024
 MAX_SOURCES = 20
 WEB = {'index.html', 'app.js', 'app.css', 'icon.svg', 'connect.js', 'settings.js'}
-VERSION = '0.3.14'
+VERSION = '0.3.15'
 # The owner: the Wizard shell's Tailscale login (one login, and his when WIZARD_OWNER_LOGINS names it). Owner routes are
 # refused on the box-local hosts (agents) unless a scratch QA server opts into a loopback single-owner dev mode.
 SHELL_AUTH = os.environ.get('WIZARD_SHELL_AUTH', 'tailscale-serve')
@@ -81,6 +83,40 @@ def prune_switches():
         except (OSError, ValueError): return
         if isinstance(raw, dict) and raw != _saved_switches():
             _save_path(DATA / 'switches.json', _saved_switches())
+
+
+_SW_NONCES = {}
+_SW_PROOF = re.compile(r'(\d{1,12})\.([0-9a-f]{48})\.([0-9a-f]{64})')
+
+
+def switch_proof(headers, method, target):
+    """None when Calendar has no platform owner-proof key, else whether the request carries a valid, unused proof
+    (wizard-os spec/OWNER_PROOF.md, hmac-v1 bound to app id, method and target, +-30 s, each nonce once). Host,
+    Origin, Tailscale-User-Login and X-Wizard-Switch are client-set, so with a key they never prove the owner."""
+    key_file = os.environ.get('WIZARD_OWNER_PROOF_KEY_FILE')
+    if not key_file:
+        return None
+    try:
+        with open(key_file, 'rb') as f:
+            key = f.read(33)
+    except OSError:
+        return False                    # a key is named but unreadable: refuse, never fall back to headers
+    app = os.environ.get('WIZARD_OWNER_PROOF_APP') or ''
+    values = headers.get_all('X-Wizard-App-Owner-Proof') or []
+    m = _SW_PROOF.fullmatch(values[0].strip()) if len(values) == 1 else None
+    if len(key) != 32 or not app or not m or abs(time.time() - int(m.group(1))) > 30:
+        return False
+    msg = '\n'.join(('wizard-app-owner-v1', app, m.group(1), m.group(2), method, target)).encode()
+    if not hmac.compare_digest(hmac.new(key, msg, hashlib.sha256).hexdigest(), m.group(3)):
+        return False
+    now = time.monotonic()
+    with LOCK:
+        for n in [n for n, until in _SW_NONCES.items() if until < now]:
+            del _SW_NONCES[n]
+        if m.group(2) in _SW_NONCES:
+            return False
+        _SW_NONCES[m.group(2)] = now + 61
+    return True
 
 
 def switches_doc():
@@ -503,6 +539,11 @@ class Handler(BaseHTTPRequestHandler):
         marked = self.headers.get('X-Wizard-Request') == 'calendar' or (switch and self.headers.get('X-Wizard-Switch') == '1')
         if self.headers.get('Authorization') or not marked:
             return False
+        if switch:
+            # With the platform owner-proof key only a valid signed proof counts (wizard-os#133).
+            proof = switch_proof(self.headers, self.command, self.path)
+            if proof is not None:
+                return proof
         if (self.headers.get('Sec-Fetch-Site') or 'same-origin').lower() not in ('same-origin', 'none'):
             return False
         if write:
