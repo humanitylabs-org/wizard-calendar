@@ -110,5 +110,9 @@ check('unreadable key: forged headers refused (no fallback)', call('GET', FORGED
 check('unreadable key: even a well-formed proof is refused',
       call('GET', {'X-Wizard-Switch': '1', 'X-Wizard-App-Owner-Proof': sign('GET', '/api/switches')}) == 403)
 
+manifest = (ROOT / 'wizard.md').read_text().split('---')[1]
+check('wizard.md declares owner_proof: hmac-v1 (so the App Manager gives Calendar its key)',
+      any(l.split('#')[0].strip() == 'owner_proof: hmac-v1' for l in manifest.splitlines()))
+
 httpd.shutdown()
 print(json.dumps({'ok': True, 'count': len(checks), 'checks': checks}, indent=2))

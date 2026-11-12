@@ -4,7 +4,7 @@ id: wizard-calendar
 name: Calendar
 type: view
 category: app
-version: 0.3.15
+version: 0.3.16
 summary: Your Google and Microsoft calendars in one view. Add, edit and answer invites; private iCal links and snapshots too.
 license: MIT
 source: https://github.com/humanitylabs-org/wizard-calendar
@@ -34,6 +34,7 @@ system: false
 uses: [mail-calendar, wizard-google, wizard-microsoft, connected-accounts]
 needs: []
 health: /healthz
+owner_proof: hmac-v1   # wizard-os#133: switch calls need the signed owner proof once the box turns owner proof on
 # Feature switches (wizard.app-switches/1, wizard-os docs/APP_SWITCHES.md): the App Manager lists and flips them, so the
 # WizardOS Tracker's Try it works the same in every browser. Off by default.
 switches:
