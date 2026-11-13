@@ -1,6 +1,5 @@
-/* Drag to move and resize (issue 19, switch drag-events, off by default).
- * - Off: events carry no drag classes and a drag changes nothing.
- * - On: an all-day bar moves between days; a timed event moves in 15-minute steps and across Week's day columns, and
+/* Drag to move and resize (issue 19, on for everyone; no switch).
+ * - An all-day bar moves between days; a timed event moves in 15-minute steps and across Week's day columns, and
  *   its bottom edge resizes it; each drop saves through api/live/update (same account and calendar as the editor) and
  *   offers Undo, which saves the old times back. A repeating event asks "This event" or "All events" (issue 33: a
  *   same-day move of a series the source names shifts every repeat; Undo shifts back). An invite you didn't
@@ -18,7 +17,6 @@ const sel = (id) => `[data-ev="${id}"]`;
   const browser = await chromium.launch(browserPath ? {headless:true, executablePath:browserPath} : {headless:true, channel:process.env.BROWSER_CHANNEL || 'chrome'});
   const checks = [], errors = [];
   const shot = async (page, name) => { if (shots) await page.screenshot({path: path.join(shots, name + '.png')}); };
-  const setSwitch = (ctx, on) => ctx.request.post(base+'/api/switches', {headers:{'X-Wizard-Switch':'1', Origin:base}, data:{id:'drag-events', on}});
   try {
     const context = await browser.newContext({viewport:{width:1280, height:900}});
     await context.clock.setFixedTime(new Date('2026-11-04T10:00:00+07:00'));
@@ -45,18 +43,7 @@ const sel = (id) => `[data-ev="${id}"]`;
       await page.mouse.up();
     };
 
-    // ---- switch off (the default) ----
-    assert.equal((await setSwitch(context, false)).status(), 200);
-    await open();
-    assert.equal(await page.locator('.dz, .nodrag, .rsz').count(), 0, 'no drag affordances while the switch is off');
-    await drag(sel(G(3)), 140, 0);
-    await page.waitForTimeout(300);
-    assert.equal(updates.length, 0, 'switch off: a drag saves nothing');
-    checks.push('switch off: no drag handles, a drag changes nothing');
-    if (await page.locator('[data-sheet]').isVisible()) { await page.evaluate(() => history.back()); await page.waitForFunction(() => document.querySelector('[data-sheet]').hidden); }
-
-    // ---- switch on ----
-    assert.equal((await setSwitch(context, true)).status(), 200);
+    // ---- always on: no switch to turn on first ----
     await open();
     assert.ok(await page.locator(`${sel(G(1))}.dz`).count(), 'an event you organise is draggable');
     assert.ok(await page.locator(`${sel(G(2))}.nodrag`).count(), "an invite you didn't organise is not");

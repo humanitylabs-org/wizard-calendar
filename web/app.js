@@ -217,9 +217,8 @@
     // All-day row
     const bars = allDayLanes(days);
     $('[data-allrow]').hidden = !bars.length;
-    const dragOn = switchOn('drag-events');
     $('[data-lanes]').innerHTML = bars.map(({ e, s, en, lane, cutL, cutR }) =>
-      `<button class="ad${cutL ? ' cut-l' : ''}${cutR ? ' cut-r' : ''}${dragOn ? (canDrag(e) ? ' dz' : ' nodrag') : ''}" data-ev="${esc(e.id)}" style="--c:${esc(e.color)};grid-column:${s + 1} / ${en + 2};grid-row:${lane + 1}">${esc(e.title)}</button>`).join('');
+      `<button class="ad${cutL ? ' cut-l' : ''}${cutR ? ' cut-r' : ''}${canDrag(e) ? ' dz' : ' nodrag'}" data-ev="${esc(e.id)}" style="--c:${esc(e.color)};grid-column:${s + 1} / ${en + 2};grid-row:${lane + 1}">${esc(e.title)}</button>`).join('');
 
     // Hours + columns: 24 rows sized to fit; labels thin out when rows get too short for every one.
     HOUR = fitHour();
@@ -241,8 +240,8 @@
         const lines = Math.max(1, Math.floor((h - (mode === 'day' ? 9 : 5) - (sub0 ? lh : 0)) / lh));
         const sub = mode === 'day' ? `${time}${e.location ? ` · ${esc(e.location)}` : ''}` : (h >= 44 ? fmtT(e.start) : '');
         // Drag to move and resize (issue 19): a bottom-edge handle on the block that holds the event's end.
-        const dz = dragOn && canDrag(e), rsz = dz && dayKey(new Date(new Date(e.end) - 1)) === k;
-        return `<button class="blk${past ? ' past' : ''}${live ? ' live' : ''}${tight ? ' tight' : ''}${dragOn ? (dz ? ' dz' : ' nodrag') : ''}" data-ev="${esc(e.id)}" style="--c:${esc(e.color)};top:${top}px;height:${Math.max(h - 1, MIN_BLK - 1)}px;left:calc(${col / nc * 100}% + 1px);width:calc(${100 / nc}% - 2px)" aria-label="${esc(e.title)}, ${time}${e.live?.by_agent ? ', by your agent' : ''}"><b${tight ? '' : ` style="-webkit-line-clamp:${lines}"`}>${esc(e.title)}</b>${sub ? `<span>${sub}</span>` : ''}${rsz ? `<i class="rsz" aria-hidden="true" style="height:${Math.round(Math.min(7, Math.max(3, h * .3)))}px"></i>` : ''}</button>`;
+        const dz = canDrag(e), rsz = dz && dayKey(new Date(new Date(e.end) - 1)) === k;
+        return `<button class="blk${past ? ' past' : ''}${live ? ' live' : ''}${tight ? ' tight' : ''}${dz ? ' dz' : ' nodrag'}" data-ev="${esc(e.id)}" style="--c:${esc(e.color)};top:${top}px;height:${Math.max(h - 1, MIN_BLK - 1)}px;left:calc(${col / nc * 100}% + 1px);width:calc(${100 / nc}% - 2px)" aria-label="${esc(e.title)}, ${time}${e.live?.by_agent ? ', by your agent' : ''}"><b${tight ? '' : ` style="-webkit-line-clamp:${lines}"`}>${esc(e.title)}</b>${sub ? `<span>${sub}</span>` : ''}${rsz ? `<i class="rsz" aria-hidden="true" style="height:${Math.round(Math.min(7, Math.max(3, h * .3)))}px"></i>` : ''}</button>`;
       }).join('');
       const nowLine = k === tk ? `<i class="now" style="top:${nowMins() / 60 * HOUR}px"></i>` : '';
       return `<div class="col${k === tk ? ' today' : ''}" data-col="${k}">${blocks}${nowLine}</div>`;
@@ -578,7 +577,7 @@
     document.querySelector('[data-status]').textContent = 'Wizard core is missing. Follow the standalone setup in README.md.';
     return;
   }
-  const VERSION = '0.3.17';
+  const VERSION = '0.3.18';
   WizardApp.ready({ name: 'Calendar', version: VERSION });
 
   // Owner feature switches (GET/POST api/switches, wizard.app-switches/1). All off by default; the Tracker's Try it
@@ -855,7 +854,7 @@
   }, { passive: false });
 
 
-  // ---- Drag to move and resize (switch drag-events, issue 19). Day and Week only. A press-and-drag on an event you can
+  // ---- Drag to move and resize (issue 19; on for everyone). Day and Week only. A press-and-drag on an event you can
   // change moves it (15-minute steps; across day columns in Week the date changes too); its bottom edge resizes it;
   // all-day bars move between days. Touch needs a short hold first, so the grid still scrolls. Esc cancels. The drop
   // saves through the editor's own path (api/live/update, same account and calendar), then offers Undo.
@@ -882,7 +881,7 @@
     return Math.max(0, Math.min(n - 1, Math.floor((x - box.left) / (box.width / n))));
   }
   function dragDown(ev) {
-    if (!switchOn('drag-events') || mode === 'month' || sheetOpen || drag || ev.button !== 0) return;
+    if (mode === 'month' || sheetOpen || drag || ev.button !== 0) return;
     if (ev.pointerType === 'touch' && HAS_TOUCH) return; // fingers use the touch path below
     const el = ev.target.closest('.blk, .ad'); if (!el || el.classList.contains('ghost')) return;
     const e = evById(el.dataset.ev); if (!e) return;
@@ -1043,7 +1042,7 @@
   // whatever happens around it.
   function touchDown(ev) {
     if (drag?.touch && ev.touches.length > 1) return void endDrag(true); // a second finger: pinch or scroll, not a drag
-    if (!switchOn('drag-events') || mode === 'month' || sheetOpen || drag || ev.touches.length !== 1) return;
+    if (mode === 'month' || sheetOpen || drag || ev.touches.length !== 1) return;
     const el = ev.target.closest('.blk, .ad'); if (!el || el.classList.contains('ghost')) return;
     const e = evById(el.dataset.ev); if (!e) return;
     const f = ev.touches[0], r = el.getBoundingClientRect(), allDay = el.classList.contains('ad');

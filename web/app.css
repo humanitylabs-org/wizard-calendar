@@ -423,7 +423,7 @@ html[data-compact-header] .dhd .w { font-size: .625rem; }
   html[data-compact-header] .nav { width: 34px; height: 34px; }
 }
 
-/* Drag to move and resize (switch drag-events, issue 19). */
+/* Drag to move and resize (issue 19; on for everyone). */
 .blk.dz, .ad.dz { cursor: grab; touch-action: manipulation; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 .blk .rsz { position: absolute; left: 0; right: 0; bottom: 0; height: 7px; cursor: ns-resize; }
 .blk .rsz::after { content: ""; position: absolute; left: 50%; bottom: 2px; width: 16px; margin-left: -8px; height: 2px; border-radius: 1px;
