@@ -429,6 +429,11 @@ html[data-compact-header] .dhd .w { font-size: .625rem; }
 .blk .rsz::after { content: ""; position: absolute; left: 50%; bottom: 2px; width: 16px; margin-left: -8px; height: 2px; border-radius: 1px;
   background: color-mix(in srgb, var(--c) 70%, var(--ink)); opacity: 0; transition: opacity .15s; }
 .blk.dz:hover .rsz::after { opacity: .8; }
+/* Touch: no hover, so the resize grip always shows on events you can move (the lower edge of the event resizes). */
+@media (pointer: coarse) {
+  .blk.dz .rsz::after { opacity: .55; width: 20px; margin-left: -10px; }
+  .blk.dz, .ad.dz { -webkit-tap-highlight-color: transparent; }
+}
 .blk.dragging { opacity: .35; }
 .ad.dragging { box-shadow: 0 0 0 2px var(--c); }
 .blk.ghost { z-index: 4; pointer-events: none; left: 1px; width: calc(100% - 2px); box-shadow: 0 0 0 2px var(--c), var(--wz-shadow, none);

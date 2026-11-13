@@ -39,7 +39,7 @@ SYNC_INTERVAL = max(0, int(os.environ.get('ICAL_SYNC_INTERVAL', '900')))
 MAX_BYTES = 4 * 1024 * 1024
 MAX_SOURCES = 20
 WEB = {'index.html', 'app.js', 'app.css', 'icon.svg', 'connect.js', 'settings.js'}
-VERSION = '0.3.16'
+VERSION = '0.3.17'
 # The owner: the Wizard shell's Tailscale login (one login, and his when WIZARD_OWNER_LOGINS names it). Owner routes are
 # refused on the box-local hosts (agents) unless a scratch QA server opts into a loopback single-owner dev mode.
 SHELL_AUTH = os.environ.get('WIZARD_SHELL_AUTH', 'tailscale-serve')
@@ -62,7 +62,7 @@ SWITCHES = [
      'description': 'In Day and Week, a two-finger sideways swipe (or Shift + mouse wheel) moves the calendar one day at a time, like Mac Calendar.',
      'default': False, 'issues': ['humanitylabs-org/wizard-calendar#21']},
     {'id': 'drag-events', 'name': 'Drag to move and resize',
-     'description': 'In Day and Week, drag an event you can change to another time or day, or drag its bottom edge to change how long it is. Snaps to 15 minutes; Undo right after. A repeating event asks: This event, or All events (every repeat moves the same amount, same day).',
+     'description': 'In Day and Week, drag an event you can change to another time or day, or drag its bottom edge to change how long it is. On a phone, hold the event for a moment first. Snaps to 15 minutes; Undo right after. A repeating event asks: This event, or All events (every repeat moves the same amount, same day).',
      'default': False, 'issues': ['humanitylabs-org/wizard-calendar#19', 'humanitylabs-org/wizard-calendar#33']},
 ]
 

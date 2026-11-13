@@ -181,7 +181,11 @@
     return Math.max(MIN_HOUR, Math.floor(avail / 24 * 4) / 4);
   }
 
+  // While an event is being dragged, redraws (the minute tick, a switch poll, a background load) wait for the drop:
+  // they would replace the dragged element under the finger and end a touch drag on phones (issue 19).
+  var dragBusy = false, renderLater = false;
   function renderTime() {
+    if (dragBusy) { renderLater = true; return; }
     const tk = todayKey(), now = Date.now(), ws = mode === 'week' ? rollStart(sel) : weekStart(sel);
     const strip = [...Array(7)].map((_, i) => addDays(ws, i));
     const days = mode === 'week' ? strip : [sel];
@@ -574,7 +578,7 @@
     document.querySelector('[data-status]').textContent = 'Wizard core is missing. Follow the standalone setup in README.md.';
     return;
   }
-  const VERSION = '0.3.16';
+  const VERSION = '0.3.17';
   WizardApp.ready({ name: 'Calendar', version: VERSION });
 
   // Owner feature switches (GET/POST api/switches, wizard.app-switches/1). All off by default; the Tracker's Try it
@@ -864,6 +868,8 @@
   const dayDiff = (a, b) => Math.round((civil(b) - civil(a)) / 864e5);
   const wallMins = (a, b) => dayDiff(a.day, b.day) * 1440 + b.m - a.m; // minutes from wall time a to b
   let drag = null, eatClick = false;
+  const HAS_TOUCH = 'ontouchstart' in window, HOLD_MS = 300;
+  let holdHinted = false;
   const tbodyEl = $('[data-tbody]');
   function dragCols() { return [...document.querySelectorAll('[data-tin] .col')]; }
   function colIndexAt(x) {
@@ -877,6 +883,7 @@
   }
   function dragDown(ev) {
     if (!switchOn('drag-events') || mode === 'month' || sheetOpen || drag || ev.button !== 0) return;
+    if (ev.pointerType === 'touch' && HAS_TOUCH) return; // fingers use the touch path below
     const el = ev.target.closest('.blk, .ad'); if (!el || el.classList.contains('ghost')) return;
     const e = evById(el.dataset.ev); if (!e) return;
     drag = { el, e, id: ev.pointerId, x0: ev.clientX, y0: ev.clientY, x: ev.clientX, y: ev.clientY, scroll0: tbodyEl.scrollTop,
@@ -887,9 +894,14 @@
     if (drag.touch) drag.timer = setTimeout(() => { if (drag && !drag.on) begin(); }, 380);
   }
   function begin() {
-    const d = drag; d.on = true;
-    try { d.el.setPointerCapture(d.id); } catch { /* the pointer is already gone */ }
-    if (!d.ok) { document.documentElement.classList.add('wc-nodrop'); return; }
+    const d = drag; d.on = true; dragBusy = true;
+    if (!d.touch) { try { d.el.setPointerCapture(d.id); } catch { /* the pointer is already gone */ } }
+    if (!d.ok) {
+      document.documentElement.classList.add('wc-nodrop');
+      if (d.touch) toast('This event can’t be moved here: it isn’t yours to change.'); // no cursor on a phone
+      return;
+    }
+    if (d.touch) { try { navigator.vibrate?.(10); } catch { /* no haptics */ } }
     document.documentElement.classList.add('wc-dragging');
     d.el.classList.add('dragging');
     if (!d.allDay) {
@@ -953,14 +965,18 @@
   }
   function endDrag(redraw) {
     const d = drag; if (!d) return null;
-    clearTimeout(d.timer); drag = null;
+    clearTimeout(d.timer); drag = null; dragBusy = false;
+    d.unlisten?.();
     document.documentElement.classList.remove('wc-dragging', 'wc-nodrop');
     if (d.on) { eatClick = true; setTimeout(() => { eatClick = false; }, 60); }
-    if (redraw && d.on) renderTime();
+    if ((redraw && d.on) || renderLater) { renderLater = false; renderTime(); }
     return d;
   }
   function dragUp(ev) {
     const d = drag; if (!d || ev.pointerId !== d.id) return;
+    drop(d);
+  }
+  function drop(d) {
     if (!d.on || !d.ok) return void endDrag(true);
     preview();
     const t = d.target; endDrag(false);
@@ -1020,7 +1036,57 @@
     undoTimer = setTimeout(hide, 6000);
     box.querySelector('[data-undo-btn]').addEventListener('click', (ev) => { ev.stopPropagation(); hide(); undo(); }, { once: true });
   }
-  for (const el of [$('[data-tin]'), $('[data-lanes]')]) el.addEventListener('pointerdown', dragDown);
+  // Touch (phones and tablets): touch events, not pointer events, because a browser that starts scrolling cancels the
+  // pointer and the drag with it. Hold an event still for a moment (a short buzz where the phone can), then drag; a
+  // quick swipe still scrolls the hours or turns the week. Pressing the lower edge of an event (a finger-sized band,
+  // not the thin mouse handle) resizes it. The listeners sit on the touched element itself, so the drag keeps going
+  // whatever happens around it.
+  function touchDown(ev) {
+    if (drag?.touch && ev.touches.length > 1) return void endDrag(true); // a second finger: pinch or scroll, not a drag
+    if (!switchOn('drag-events') || mode === 'month' || sheetOpen || drag || ev.touches.length !== 1) return;
+    const el = ev.target.closest('.blk, .ad'); if (!el || el.classList.contains('ghost')) return;
+    const e = evById(el.dataset.ev); if (!e) return;
+    const f = ev.touches[0], r = el.getBoundingClientRect(), allDay = el.classList.contains('ad');
+    const band = r.height >= 20 ? Math.min(24, r.height * .4) : 0; // the lower part; a very short event only moves
+    const resize = !allDay && !!el.querySelector('.rsz') && r.bottom - f.clientY <= band;
+    drag = { el, e, id: 'touch', x0: f.clientX, y0: f.clientY, x: f.clientX, y: f.clientY, scroll0: tbodyEl.scrollTop,
+      allDay, kind: resize ? 'resize' : 'move', ok: canDrag(e), on: false, touch: true };
+    if (!allDay) drag.col0 = dragCols().indexOf(el.closest('.col'));
+    else drag.lane0 = laneIndexAt(f.clientX);
+    const d = drag, node = ev.target;
+    const move = (te) => {
+      if (drag !== d) return;
+      const t = [...te.touches][0]; if (!t) return;
+      d.x = t.clientX; d.y = t.clientY;
+      if (!d.on) {
+        if (Math.hypot(d.x - d.x0, d.y - d.y0) > 10) { // moved before the hold: scroll or swipe instead
+          endDrag(false);
+          // Once per visit, say how a finger moves an event (a quick drag on a phone swipes the week instead).
+          // Shown after the finger lifts: the status line appearing mid-gesture would redraw the grid under it.
+          if (d.ok && !holdHinted) { holdHinted = true; node.addEventListener('touchend', () => setTimeout(() => toast('To move an event, hold it for a moment, then drag.'), 0), { once: true }); }
+        }
+        return;
+      }
+      if (!te.cancelable) return void endDrag(true); // the browser is already scrolling
+      te.preventDefault();
+      preview();
+    };
+    const end = (te) => {
+      if (drag !== d) return;
+      if (d.on) te.preventDefault(); // no click (opening the event) after a drag
+      if (te.type === 'touchcancel') return void endDrag(true);
+      drop(d);
+    };
+    node.addEventListener('touchmove', move, { passive: false });
+    node.addEventListener('touchend', end, { passive: false });
+    node.addEventListener('touchcancel', end, { passive: false });
+    d.unlisten = () => { for (const [t, f2] of [['touchmove', move], ['touchend', end], ['touchcancel', end]]) node.removeEventListener(t, f2); };
+    d.timer = setTimeout(() => { if (drag === d && !d.on) begin(); }, HOLD_MS);
+  }
+  for (const el of [$('[data-tin]'), $('[data-lanes]')]) {
+    el.addEventListener('pointerdown', dragDown);
+    el.addEventListener('touchstart', touchDown, { passive: true });
+  }
   document.addEventListener('pointermove', dragMove, { passive: false });
   document.addEventListener('pointerup', dragUp);
   document.addEventListener('pointercancel', (ev) => { if (drag && ev.pointerId === drag.id) endDrag(true); });

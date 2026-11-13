@@ -214,6 +214,90 @@ const sel = (id) => `[data-ev="${id}"]`;
     checks.push('touch: hold then drag two hours down in Day saves 11:00–11:15');
     await phone.close();
 
+    // ---- touch on a phone, more (issue 19 kick-back: "not mobile friendly") ----
+    // A two-hour event (Focus, Mon 2 Nov 14:00–16:00) is added to what the page loads, so a finger has room to work.
+    const phone2 = await browser.newContext({viewport:{width:390, height:844}, hasTouch:true, isMobile:true});
+    await phone2.clock.setFixedTime(new Date('2026-11-04T10:00:00+07:00'));
+    const p3 = await phone2.newPage();
+    const u3 = [];
+    p3.on('pageerror', e => errors.push(String(e)));
+    p3.on('request', (r) => { if (r.method() === 'POST' && r.url().endsWith('/api/live/update')) u3.push(r.postDataJSON()); });
+    await p3.route(/\/api\/events\?/, async (route) => {
+      const res = await route.fetch(), d = await res.json();
+      d.events.push({id: G(9), cal: 'live:google:me@gmail.com', title: 'Focus', start: '2026-11-02T14:00:00+07:00', end: '2026-11-02T16:00:00+07:00',
+        allDay: false, location: '', description: '', guests: '', meet: '', link: '',
+        live: {account: 'live:google:me@gmail.com', calendar_id: 'primary', id: 'google-9', is_organizer: true, my_response: 'organizer',
+          invited: false, recurring: false, time_zone: 'Asia/Bangkok', by_agent: false}});
+      await route.fulfill({response: res, json: d});
+    });
+    await p3.goto(base+'/');
+    await p3.waitForFunction(() => /visible events/.test(document.querySelector('[data-status]').textContent));
+    await p3.locator('[data-mode="day"]').click();
+    await p3.locator('[data-prev]').click(); await p3.locator('[data-prev]').click(); // Mon 2 Nov
+    await p3.waitForSelector(sel(G(9)));
+    const c3 = await phone2.newCDPSession(p3);
+    const H3 = await p3.evaluate(() => parseFloat(getComputedStyle(document.querySelector('[data-time]')).getPropertyValue('--hour')));
+    const tbox = async () => { await p3.locator(sel(G(9))).first().scrollIntoViewIfNeeded(); await p3.waitForTimeout(150); return p3.locator(sel(G(9))).first().boundingBox(); };
+    const touch = async (x, y, moves, {hold = 600, pause = 0} = {}) => {
+      await c3.send('Input.dispatchTouchEvent', {type:'touchStart', touchPoints:[{x, y}]});
+      if (hold) await p3.waitForTimeout(hold);
+      for (const [mx, my] of moves) await c3.send('Input.dispatchTouchEvent', {type:'touchMove', touchPoints:[{x: mx, y: my}]});
+      if (pause) await p3.waitForTimeout(pause);
+      await c3.send('Input.dispatchTouchEvent', {type:'touchEnd', touchPoints:[]});
+    };
+    const steps = (x, y, dx, dy, n = 8) => [...Array(n)].map((_, i) => [x + dx * (i + 1) / n, y + dy * (i + 1) / n]);
+
+    // A quick sideways swipe that starts on an event (no hold) still turns the day and moves nothing.
+    let fb = await tbox();
+    const dayLabel = () => p3.locator('[data-time] .dhd.sel').first().textContent();
+    const d0 = await dayLabel();
+    await touch(fb.x + 150, fb.y + fb.height / 2, steps(fb.x + 150, fb.y + fb.height / 2, -150, 0), {hold: 0});
+    await p3.waitForFunction((was) => document.querySelector('[data-time] .dhd.sel')?.textContent !== was, d0);
+    assert.equal(u3.length, 0, 'a quick swipe saves nothing');
+    assert.equal(await p3.locator('[data-sheet]').isVisible(), false, 'a swipe does not open the event');
+    assert.match(await p3.locator('[data-status]').textContent(), /hold it for a moment, then drag/, 'a quick drag on an event says to hold first');
+    await p3.locator('[data-prev]').click();
+    await p3.waitForFunction((was) => document.querySelector('[data-time] .dhd.sel')?.textContent === was, d0);
+    checks.push('touch: a quick swipe starting on an event still turns the day, saves nothing and says to hold first');
+
+    // A tap still opens the event.
+    fb = await tbox();
+    await touch(fb.x + 30, fb.y + fb.height / 2, [], {hold: 0});
+    await p3.waitForSelector('[data-sheet] [data-edit]');
+    assert.equal(u3.length, 0);
+    await p3.evaluate(() => history.back()); await p3.waitForFunction(() => document.querySelector('[data-sheet]').hidden);
+    checks.push('touch: a tap still opens the event');
+
+    // Hold the lower edge (a finger-sized band) and drag down an hour: resized to 14:00–17:00.
+    fb = await tbox();
+    const ey = fb.y + fb.height - 6;
+    assert.ok(await p3.evaluate(() => matchMedia('(pointer: coarse)').matches), 'phone context is a coarse pointer');
+    await touch(fb.x + 30, ey, steps(fb.x + 30, ey, 0, H3));
+    await p3.waitForSelector('[data-undo]:not([hidden])');
+    assert.deepEqual(u3.at(-1), {account:'live:google:me@gmail.com', calendar_id:'primary', id:'google-9', start:'2026-11-02T14:00', end:'2026-11-02T17:00', time_zone:'Asia/Bangkok'});
+    assert.equal(await p3.locator('[data-sheet]').isVisible(), false, 'dropping does not open the event');
+    checks.push('touch: hold the lower edge and drag an hour down resizes to 14:00–17:00');
+
+    await shot(p3, 'drag-phone-resize');
+
+    // The screen changes size mid-drag (the browser's address bar slides away, the phone turns): the grid redraws only
+    // after the drop, so the drag under the finger carries on and saves.
+    await p3.waitForSelector('[data-undo]', {state: 'hidden', timeout: 10000}).catch(() => {});
+    fb = await tbox();
+    const n3 = u3.length, my = fb.y + 6;
+    await c3.send('Input.dispatchTouchEvent', {type:'touchStart', touchPoints:[{x: fb.x + 30, y: my}]});
+    await p3.waitForTimeout(600);
+    for (const [mx, mmy] of steps(fb.x + 30, my, 0, -H3, 4)) await c3.send('Input.dispatchTouchEvent', {type:'touchMove', touchPoints:[{x: mx, y: mmy}]});
+    await p3.setViewportSize({width:390, height:760});
+    await p3.waitForTimeout(300);
+    for (const [mx, mmy] of steps(fb.x + 30, my - H3, 0, -H3, 4)) await c3.send('Input.dispatchTouchEvent', {type:'touchMove', touchPoints:[{x: mx, y: mmy}]});
+    await c3.send('Input.dispatchTouchEvent', {type:'touchEnd', touchPoints:[]});
+    await p3.waitForFunction((n) => document.querySelector('[data-undo]') && !document.querySelector('[data-undo]').hidden, n3);
+    assert.equal(u3.length, n3 + 1, 'the drag saved once');
+    assert.deepEqual(u3.at(-1), {account:'live:google:me@gmail.com', calendar_id:'primary', id:'google-9', start:'2026-11-02T12:00', end:'2026-11-02T14:00', time_zone:'Asia/Bangkok'});
+    checks.push('touch: the screen resizing mid-drag does not drop the drag (saves 12:00–14:00)');
+    await phone2.close();
+
     assert.deepEqual(errors, []);
     console.log(JSON.stringify({ok:true, checks}, null, 1));
   } finally { await browser.close(); }
