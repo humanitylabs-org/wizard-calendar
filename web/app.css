@@ -180,8 +180,8 @@ a { color: var(--violet-2); }
 /* Overlapping events sit side by side; when a column is too narrow for that, each keeps a readable minimum width
    (--blk-min) and they cascade across the column, later ones on top, instead of shrinking to one-letter slivers. */
 .blk { --blk-min: 2.25rem; --w: max(calc(100% / var(--nc, 1) - 2px), min(var(--blk-min), calc(100% - 2px)));
-  width: var(--w); left: calc(1px + (100% - 2px - var(--w)) * var(--k, 0));
-  position: absolute; overflow: hidden; border-radius: 6px; padding: 2px 3px 2px 4px; font-size: 10.5px; line-height: 1.2; color: var(--ink);
+  width: var(--w); left: calc(1px + (100% - 2px - var(--w)) * var(--k, 0)); }
+.blk { position: absolute; overflow: hidden; border-radius: 6px; padding: 2px 3px 2px 4px; font-size: 10.5px; line-height: 1.2; color: var(--ink);
   background: color-mix(in srgb, var(--c) 24%, var(--bg)); border-left: 3px solid var(--c); box-shadow: 0 0 0 1px var(--bg); }
 .blk b { display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; font-weight: 650; word-break: normal; overflow-wrap: normal; }
 .blk span { display: block; color: var(--ink-2); font-size: 10px; margin-top: 1px; }
