@@ -451,3 +451,6 @@ html[data-compact-header] .dhd .w { font-size: .625rem; }
   background: var(--glass-2); color: var(--ink); border: 1px solid var(--line); box-shadow: var(--wz-shadow-window, var(--wz-shadow, none)); }
 .wc-undo[hidden] { display: none; }
 .wc-undo .lnk { color: var(--violet-2); font-weight: 700; font-size: .875rem; background: none; border: 0; padding: 0; cursor: pointer; }
+
+/* Pinch to zoom the hours (switch pinch-zoom, issue 43): the page itself doesn't zoom, two fingers zoom the hours. */
+.tg.zoomable .tg-body { touch-action: pan-x pan-y; }
