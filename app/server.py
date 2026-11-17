@@ -61,6 +61,9 @@ SWITCHES = [
     {'id': 'trackpad-swipe', 'name': 'Trackpad day swipe',
      'description': 'In Day and Week, a two-finger sideways swipe (or Shift + mouse wheel) moves the calendar one day at a time, like Mac Calendar.',
      'default': False, 'issues': ['humanitylabs-org/wizard-calendar#21']},
+    {'id': 'pinch-zoom', 'name': 'Pinch to zoom hours',
+     'description': 'In Day and Week, pinch with two fingers (or Ctrl + mouse wheel, or a trackpad pinch) to make the hours taller or shorter, like Google Calendar. The zoom is remembered.',
+     'default': False, 'issues': ['humanitylabs-org/wizard-calendar#43']},
 ]
 
 

@@ -10,6 +10,11 @@
   // show all 24 hours at that size or more fits the whole day (issue 42: on phones 24 squeezed hours were unreadable).
   const BASE_HOUR = 48, MIN_BLK = 14;
   let HOUR = BASE_HOUR;
+  // Pinch-zoom level of the Day/Week hours (issue 43, behind switch pinch-zoom): 0.5x to 3x of BASE_HOUR, shared by
+  // Day and Week and kept across restarts.
+  const ZOOM_MIN = 0.5, ZOOM_MAX = 3;
+  const clampZoom = (z) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Number.isFinite(z) ? z : 1));
+  let zoom = clampZoom(parseFloat(localStorage.getItem('wc.zoom') || '1'));
   let mode = MODES.includes(localStorage.getItem('wc.mode')) ? localStorage.getItem('wc.mode') : 'week';
   let needScroll = true; // scroll the time grid to "now" on the next render
   let range = null, loading = null; // the loaded live window [from, to)
@@ -179,12 +184,21 @@
     if (!h) return HOUR;
     const cs = getComputedStyle(tin);
     const avail = h - parseFloat(cs.marginTop) - parseFloat(cs.marginBottom) - 1;
-    return Math.max(BASE_HOUR, Math.floor(avail / 24 * 4) / 4);
+    const fill = Math.floor(avail / 24 * 4) / 4;
+    // Pinch to zoom (switch pinch-zoom, issue 43): the remembered zoom scales the readable default, never below
+    // a grid that still fills the window.
+    if (zoomOn()) return Math.max(fill, Math.round(BASE_HOUR * zoom * 4) / 4);
+    return Math.max(BASE_HOUR, fill);
   }
+
+  const zoomOn = () => switchOn('pinch-zoom');
+  // Where hour 0 starts inside the scrolling hours (the grid's top margin).
+  const tinOffset = () => { const b = $('[data-tbody]'); return $('[data-tin]').getBoundingClientRect().top - b.getBoundingClientRect().top + b.scrollTop; };
 
   // While an event is being dragged, redraws (the minute tick, a switch poll, a background load) wait for the drop:
   // they would replace the dragged element under the finger and end a touch drag on phones (issue 19).
   var dragBusy = false, renderLater = false;
+  var pinch = null; // a two-finger zoom in progress (issue 43)
   function renderTime() {
     if (dragBusy) { renderLater = true; return; }
     const tk = todayKey(), now = Date.now(), ws = mode === 'week' ? rollStart(sel) : weekStart(sel);
@@ -222,7 +236,10 @@
       `<button class="ad${cutL ? ' cut-l' : ''}${cutR ? ' cut-r' : ''}${canDrag(e) ? ' dz' : ' nodrag'}" data-ev="${esc(e.id)}" style="--c:${esc(e.color)};grid-column:${s + 1} / ${en + 2};grid-row:${lane + 1}">${esc(e.title)}</button>`).join('');
 
     // Hours + columns: 24 readable rows (the grid scrolls); labels thin out only if rows ever get too short for every one.
+    const body = $('[data-tbody]'), hour0 = HOUR, wasZoom = tg.classList.contains('zoomable');
+    const top0 = (body.scrollTop - tinOffset()) / hour0; // hours above the top edge, to keep in view on a zoom change
     HOUR = fitHour();
+    tg.classList.toggle('zoomable', zoomOn());
     tg.style.setProperty('--hour', `${HOUR}px`);
     tg.classList.toggle('dense', HOUR < 30);
     const every = HOUR >= 13 ? 1 : HOUR >= 9 ? 2 : 3;
@@ -248,6 +265,7 @@
       return `<div class="col${k === tk ? ' today' : ''}" data-col="${k}">${blocks}${nowLine}</div>`;
     }).join('');
     $('[data-tin]').innerHTML = `<div class="tg-hrs">${hours}</div><div class="tg-cols">${cols}</div>`;
+    if ((wasZoom || zoomOn()) && HOUR !== hour0 && !needScroll && !pinch) body.scrollTop = tinOffset() + Math.max(0, top0) * HOUR;
 
     if (needScroll) {
       needScroll = false;
@@ -774,7 +792,10 @@
 
   // Horizontal swipe on the time grid changes week/day.
   let tx = null, ty = null;
-  $('[data-time]').addEventListener('touchstart', (e) => { tx = e.touches[0].clientX; ty = e.touches[0].clientY; }, { passive: true });
+  $('[data-time]').addEventListener('touchstart', (e) => {
+    if (e.touches.length > 1 && zoomOn()) { tx = null; return; } // a second finger: a pinch (issue 43), not a swipe
+    tx = e.touches[0].clientX; ty = e.touches[0].clientY;
+  }, { passive: true });
   $('[data-time]').addEventListener('touchend', (e) => {
     if (tx == null) return;
     if (eatClick) { tx = null; return; } // that touch dragged an event (issue 19), not the week
@@ -850,6 +871,74 @@
     clearTimeout(swipeTimer);
     swipeTimer = setTimeout(() => { if (Math.abs(swipeAcc) >= step / 3) shiftDay(Math.sign(swipeAcc)); swipeAcc = 0; }, 140);
   }, { passive: false });
+
+
+  // ---- Pinch to zoom the hours (switch pinch-zoom, issue 43; like Google Calendar). Day and Week only. Two fingers
+  // pinched vertically make the hours taller or shorter (0.5x to 3x of the 48 px default, never shorter than a grid
+  // that fills the window); the time between the fingers stays under them. One finger still scrolls, swipes and drags
+  // as before. On a computer, Ctrl + wheel and a trackpad pinch zoom the same way. The level is shared by Day and
+  // Week and kept across restarts. ----
+  const saveZoom = () => { try { localStorage.setItem('wc.zoom', String(Math.round(zoom * 1000) / 1000)); } catch { /* private mode */ } };
+  // Zoom to z, keeping `mins` (minutes since 00:00; default: the time under y) at the screen height y.
+  function zoomAt(z, y, mins) {
+    const body = $('[data-tbody]'), r = body.getBoundingClientRect();
+    y = Math.min(r.bottom, Math.max(r.top, y));
+    if (mins == null) mins = (y - r.top + body.scrollTop - tinOffset()) / HOUR * 60;
+    zoom = clampZoom(z);
+    renderTime();
+    if (HOUR > BASE_HOUR * zoom + 0.5) zoom = clampZoom(HOUR / BASE_HOUR); // the window's fill is the floor: no dead zone
+    body.scrollTop = tinOffset() + mins / 60 * HOUR - (y - r.top);
+  }
+  const zoomable = () => zoomOn() && mode !== 'month' && !tgEl.hidden && !sheetOpen;
+  function pinchStart(ev) {
+    if (pinch || ev.touches.length !== 2 || !zoomable()) return;
+    const [a, b] = ev.touches, body = $('[data-tbody]'), r = body.getBoundingClientRect();
+    const y = (a.clientY + b.clientY) / 2;
+    const p = pinch = { d0: Math.max(30, Math.abs(a.clientY - b.clientY)), z0: zoom, y, raf: 0,
+      mins: (y - r.top + body.scrollTop - tinOffset()) / HOUR * 60, seen: new WeakSet() };
+    const apply = () => { p.raf = 0; if (pinch === p) zoomAt(p.z0 * p.d / p.d0, p.y, p.mins); };
+    // Listeners on the touched elements themselves: a redraw replaces them, and a removed element's touch events no
+    // longer reach the grid (the drag code does the same).
+    const nodes = new Set([a.target, b.target, body]);
+    const move = (te) => {
+      if (pinch !== p || p.seen.has(te)) return; p.seen.add(te);
+      if (te.cancelable) te.preventDefault(); // no page zoom, no scroll while pinching
+      if (te.touches.length < 2) return;
+      const [f, g] = te.touches;
+      p.d = Math.max(30, Math.abs(f.clientY - g.clientY));
+      p.y = (f.clientY + g.clientY) / 2;
+      if (!p.raf) p.raf = requestAnimationFrame(apply);
+    };
+    const end = (te) => {
+      if (pinch !== p || te.touches.length >= 2) return;
+      cancelAnimationFrame(p.raf); if (p.d) apply();
+      pinch = null; saveZoom();
+      for (const n of nodes) for (const [t, f] of [['touchmove', move], ['touchend', end], ['touchcancel', end]]) n.removeEventListener(t, f);
+    };
+    for (const n of nodes) {
+      n.addEventListener('touchmove', move, { passive: false });
+      n.addEventListener('touchend', end);
+      n.addEventListener('touchcancel', end);
+    }
+  }
+  $('[data-tbody]').addEventListener('touchstart', pinchStart, { passive: true });
+  tgEl.addEventListener('wheel', (e) => {
+    if (!e.ctrlKey || !zoomable()) return; // Chrome and Firefox send a trackpad pinch as Ctrl + wheel
+    e.preventDefault();
+    const dy = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1);
+    zoomAt(zoom * Math.exp(-Math.max(-100, Math.min(100, dy)) / 200), e.clientY);
+    saveZoom();
+  }, { passive: false });
+  // Safari on a Mac trackpad: gesture events (iOS also sends them, but there the touch pinch above already runs).
+  let gz = null;
+  tgEl.addEventListener('gesturestart', (e) => {
+    if (pinch || !zoomable()) return;
+    e.preventDefault();
+    const body = $('[data-tbody]'), r = body.getBoundingClientRect(), y = Math.min(r.bottom, Math.max(r.top, e.clientY));
+    gz = { z0: zoom, y, mins: (y - r.top + body.scrollTop - tinOffset()) / HOUR * 60 };
+  });
+  tgEl.addEventListener('gesturechange', (e) => { if (!gz || pinch) return; e.preventDefault(); zoomAt(gz.z0 * e.scale, gz.y, gz.mins); });
+  tgEl.addEventListener('gestureend', () => { if (gz) saveZoom(); gz = null; });
 
 
   // ---- Drag to move and resize (issue 19; on for everyone). Day and Week only. A press-and-drag on an event you can
