@@ -80,7 +80,8 @@ const LEVELS = [['no_access', 'No access'], ['read_only', 'Read-only'], ['sugges
       assert.equal(await page.locator('[data-sheet] [data-edit]').count(), 1, 'an agent-made event is still editable');
       await shot(page, `${w}-by-agent`);
       await page.evaluate(() => history.back()); await page.waitForFunction(() => document.querySelector('[data-sheet]').hidden);
-      await page.locator('[data-ev="live:google:me@gmail.com|primary|google-1"]').first().click();
+      // Same-time events cascade in a narrow Week column (issue 42): the one underneath shows at its left edge.
+      await page.locator('[data-ev="live:google:me@gmail.com|primary|google-1"]').first().click({position: {x: 5, y: 5}});
       await page.waitForSelector('[data-sheet] [data-edit]');
       assert.equal(await page.locator('[data-by-agent]').count(), 0);
       assert.equal(await page.locator('[data-read-only]').count(), 0);
