@@ -64,6 +64,9 @@ SWITCHES = [
     {'id': 'pinch-zoom', 'name': 'Pinch to zoom hours',
      'description': 'In Day and Week, pinch with two fingers (or Ctrl + mouse wheel, or a trackpad pinch) to make the hours taller or shorter, like Google Calendar. The zoom is remembered.',
      'default': False, 'issues': ['humanitylabs-org/wizard-calendar#43']},
+    {'id': 'three-day', 'name': '3 Day view',
+     'description': 'Adds a 3 Day tab between Day and Week: three days side by side, starting on the selected day. The arrows and a sideways swipe move three days at a time.',
+     'default': False, 'issues': ['humanitylabs-org/wizard-calendar#47']},
 ]
 
 

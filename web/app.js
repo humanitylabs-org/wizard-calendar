@@ -5,7 +5,9 @@
   const API = new URL('api/events', location.href).pathname;
   let TZ = 'UTC';
   let doc = null, byDay = new Map(), view = null, sel = null, sheetOpen = false;
-  const MODES = ['day', 'week', 'month'];
+  const MODES = ['day', '3day', 'week', 'month'];
+  // Days shown side by side in the time grid: Day 1, 3 Day 3 (issue 47, behind switch three-day), Week 7.
+  const SPAN = { day: 1, '3day': 3, week: 7 };
   // Day/Week hours are a readable 48 px (Google Calendar's default) and the grid scrolls; only a window tall enough to
   // show all 24 hours at that size or more fits the whole day (issue 42: on phones 24 squeezed hours were unreadable).
   const BASE_HOUR = 48, MIN_BLK = 14;
@@ -16,6 +18,10 @@
   const clampZoom = (z) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Number.isFinite(z) ? z : 1));
   let zoom = clampZoom(parseFloat(localStorage.getItem('wc.zoom') || '1'));
   let mode = MODES.includes(localStorage.getItem('wc.mode')) ? localStorage.getItem('wc.mode') : 'week';
+  // 3 Day is only offered while switch three-day is on: a remembered 3 Day opens as Week until the switches say it is on.
+  let want3 = mode === '3day';
+  if (want3) mode = 'week';
+  const multi = () => mode === 'week' || mode === '3day'; // several day columns that step and drag across days
   let needScroll = true; // scroll the time grid to "now" on the next render
   let range = null, loading = null; // the loaded live window [from, to)
 
@@ -125,9 +131,13 @@
   const rollStart = (k) => addDays(k, -((dowMon(k) - wkDow + 7) % 7));
   // Move the Week window by n days (±7 = a week, ±1 = one day). Today is chosen when it is in view, else the selected day
   // moves with the window and stays inside it.
+  // 3 Day (issue 47) starts on the selected day (or today) and moves with the same rule; d3 is its first day.
+  let d3 = null;
+  const start3 = () => { if (!d3 || sel < d3 || sel > addDays(d3, 2)) d3 = sel; return d3; };
+  const spanStart = () => mode === '3day' ? start3() : rollStart(sel);
   function stepWeek(n) {
-    const ws = addDays(rollStart(sel), n), we = addDays(ws, 6), tk = todayKey();
-    wkDow = dowMon(ws);
+    const ws = addDays(spanStart(), n), we = addDays(ws, SPAN[mode] - 1), tk = todayKey();
+    if (mode === '3day') d3 = ws; else wkDow = dowMon(ws);
     let k = addDays(sel, n);
     if (tk >= ws && tk <= we) k = tk; else if (k < ws) k = ws; else if (k > we) k = we;
     sel = k; needScroll = true; renderTime(); ensureRange();
@@ -201,16 +211,16 @@
   var pinch = null; // a two-finger zoom in progress (issue 43)
   function renderTime() {
     if (dragBusy) { renderLater = true; return; }
-    const tk = todayKey(), now = Date.now(), ws = mode === 'week' ? rollStart(sel) : weekStart(sel);
-    const strip = [...Array(7)].map((_, i) => addDays(ws, i));
-    const days = mode === 'week' ? strip : [sel];
+    const tk = todayKey(), now = Date.now(), ws = multi() ? spanStart() : weekStart(sel);
+    const strip = [...Array(mode === '3day' ? 3 : 7)].map((_, i) => addDays(ws, i));
+    const days = multi() ? strip : [sel];
     const n = days.length, tg = $('[data-time]');
     tg.classList.toggle('is-day', mode === 'day');
     tg.style.setProperty('--n', n);
 
     // Title
-    if (mode === 'week') {
-      const a = civil(strip[0]), b = civil(strip[6]);
+    if (multi()) {
+      const a = civil(strip[0]), b = civil(strip[strip.length - 1]);
       const mo = (c, y) => new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', month: y ? 'long' : 'short', ...(y ? { year: 'numeric' } : {}) }).format(c);
       const long = a.getUTCMonth() === b.getUTCMonth() ? mo(a, 1) : `${mo(a)} – ${mo(b)} ${b.getUTCFullYear()}`;
       // Narrow windows show a short title ("Nov", "Oct–Nov") so the week and day arrows fit beside it on one line.
@@ -281,6 +291,13 @@
     $('[data-scroll]').hidden = !month;
     $('[data-time]').hidden = month;
     for (const b of document.querySelectorAll('[data-mode]')) { const on = b.dataset.mode === mode; b.classList.toggle('on', on); b.setAttribute('aria-selected', String(on)); }
+    // 3 Day: ‹ › move three days (issue 47).
+    if (mode === '3day') {
+      for (const [sel3, l] of [['[data-prev]', 'Back 3 days'], ['[data-next-month]', 'Forward 3 days']]) { $(sel3).setAttribute('aria-label', l); $(sel3).title = l; }
+      for (const b of document.querySelectorAll('[data-step], [data-unit]')) b.hidden = true;
+      $('[data-go]').classList.remove('is-week');
+      return;
+    }
     // Week: « » move a week, ‹ › (beside the title) move one day. Day and Month: ‹ › move one day / month.
     const week = mode === 'week', unit = { day: 'day', week: 'day', month: 'month' }[mode];
     $('[data-prev]').setAttribute('aria-label', week ? 'Back one day' : `Previous ${unit}`);
@@ -292,7 +309,9 @@
   }
 
   function setMode(m) {
-    if (!MODES.includes(m)) return;
+    if (!MODES.includes(m) || (m === '3day' && !switchOn('three-day'))) return;
+    want3 = false;
+    if (m === '3day') d3 = null; // starts on the selected day
     mode = m; localStorage.setItem('wc.mode', m); needScroll = true;
     if (m === 'month' && sel) view = [+sel.slice(0, 4), +sel.slice(5, 7) - 1];
     applyMode(); render();
@@ -620,7 +639,17 @@
       if (r.ok) switches = (await r.json()).switches || [];
     } catch { /* keep the last known switches (off by default) */ }
     placeChrome();
+    if (sync3()) return;
     if (was !== JSON.stringify(switches) && doc && mode !== 'month') renderTime();
+  }
+  // The 3 Day tab (issue 47) shows only while switch three-day is on. Turning it off leaves 3 Day for Week; a 3 Day
+  // remembered from before opens again once the switch is on. True when it changed the view.
+  function sync3() {
+    const on = switchOn('three-day');
+    for (const b of document.querySelectorAll('[data-mode="3day"]')) b.hidden = !on;
+    if (on && want3 && mode === 'week') { want3 = false; if (sel) { setMode('3day'); return true; } want3 = true; }
+    if (!on && mode === '3day') { mode = 'week'; want3 = true; needScroll = true; applyMode(); if (doc) render(); return true; }
+    return false;
   }
   async function toggleSwitch(btn) {
     const id = btn.dataset.switch, on = !switchOn(id);
@@ -630,7 +659,7 @@
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.error || `Request failed (${r.status})`);
       switches = d.switches || switches;
-      placeChrome(); if (doc) render();
+      placeChrome(); if (!sync3() && doc) render();
       if (sheetOpen) openCals();
     } catch (e) { btn.disabled = false; say(e.message); }
   }
@@ -751,6 +780,7 @@
     if (t.matches('[data-today-btn]')) return goToday();
     if (t.matches('[data-sync]')) return syncNow(t);
     if (t.dataset.step && mode === 'week') return stepWeek(+t.dataset.step);
+    if (mode === '3day' && t.matches('[data-prev], [data-next-month]')) return stepWeek(t.matches('[data-prev]') ? -3 : 3);
     if (mode === 'week' && t.matches('[data-prev], [data-next-month]')) return stepWeek(t.matches('[data-prev]') ? -1 : 1);
     if (mode === 'day' && t.matches('[data-prev], [data-next-month]')) {
       sel = addDays(sel, t.matches('[data-prev]') ? -1 : 1);
@@ -802,6 +832,7 @@
     const dx = e.changedTouches[0].clientX - tx, dy = e.changedTouches[0].clientY - ty; tx = null;
     if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
       if (mode === 'week') return stepWeek(dx < 0 ? 7 : -7); // swipes still turn a whole week
+      if (mode === '3day') return stepWeek(dx < 0 ? 3 : -3);
       $(dx < 0 ? '[data-next-month]' : '[data-prev]').click();
     }
   }, { passive: true });
@@ -840,7 +871,7 @@
       doc = d; range = d.liveRange || null; sgGen++;
       if (!sel) sel = todayKey();
       if (!view) view = [+sel.slice(0, 4), +sel.slice(5, 7) - 1];
-      render();
+      if (!sync3()) render();
       if (refresh && d.syncing) { await new Promise((ok) => setTimeout(ok, 2500)); return load(false); }
     } catch (err) {
       $('[data-status]').textContent = 'Unable to load calendar. Open Settings and Sync now to retry.'; $('[data-status]').classList.remove('wc-sr'); $('[data-status]').hidden = false;
@@ -854,7 +885,7 @@
   const tgEl = $('[data-time]');
   let swipeAcc = 0, swipeTimer = 0, vUntil = 0;
   function shiftDay(k) {
-    if (mode === 'week') return stepWeek(k);
+    if (multi()) return stepWeek(k);
     sel = addDays(sel, k); needScroll = true; renderTime(); ensureRange();
   }
   tgEl.addEventListener('wheel', (e) => {
@@ -866,7 +897,7 @@
     if (!swipeAcc && (t < vUntil || Math.abs(x) <= Math.abs(y) * 1.2 || Math.abs(x) < 1)) { vUntil = t + 140; return; }
     e.preventDefault();
     swipeAcc += x;
-    const step = Math.max(40, ($('.tg-cols')?.clientWidth || 280) / (mode === 'week' ? 7 : 3));
+    const step = Math.max(40, ($('.tg-cols')?.clientWidth || 280) / (SPAN[mode] || 3));
     while (Math.abs(swipeAcc) >= step) { const k = Math.sign(swipeAcc); swipeAcc -= k * step; shiftDay(k); }
     clearTimeout(swipeTimer);
     swipeTimer = setTimeout(() => { if (Math.abs(swipeAcc) >= step / 3) shiftDay(Math.sign(swipeAcc)); swipeAcc = 0; }, 140);
@@ -964,7 +995,7 @@
     return i;
   }
   function laneIndexAt(x) {
-    const box = $('[data-lanes]').getBoundingClientRect(), n = mode === 'week' ? 7 : 1;
+    const box = $('[data-lanes]').getBoundingClientRect(), n = SPAN[mode] || 1;
     return Math.max(0, Math.min(n - 1, Math.floor((x - box.left) / (box.width / n))));
   }
   function dragDown(ev) {
@@ -1011,7 +1042,7 @@
       const raw = wallAt(en.day, Math.round((en.m + dm) / SNAP) * SNAP);
       return { s, e: wallMins(s, raw) < SNAP ? wallAt(s.day, s.m + SNAP) : raw };
     }
-    const dd = mode === 'week' ? colIndexAt(d.x) - d.col0 : 0;
+    const dd = multi() ? colIndexAt(d.x) - d.col0 : 0;
     const t = wallAt(s.day, s.m + dd * 1440 + dm);
     const ns = wallAt(t.day, Math.round(t.m / SNAP) * SNAP);
     return { s: ns, e: wallAt(ns.day, ns.m + dur) };
@@ -1020,7 +1051,7 @@
     const d = drag; if (!d?.on || !d.ok) return;
     const t = d.target = dragTarget();
     if (d.allDay) {
-      const days = mode === 'week' ? 7 : 1, ws = mode === 'week' ? rollStart(sel) : sel, last = addDays(ws, days - 1);
+      const days = SPAN[mode] || 1, ws = multi() ? spanStart() : sel, last = addDays(ws, days - 1);
       const a = t.start < ws ? ws : t.start, b0 = addDays(t.end, -1), b = b0 > last ? last : b0;
       if (a <= last && b >= ws) d.el.style.gridColumn = `${dayDiff(ws, a) + 1} / ${dayDiff(ws, b) + 2}`;
       d.el.dataset.when = fmtC(t.start, { weekday: 'short', day: 'numeric', month: 'short' });
