@@ -6,9 +6,10 @@
   let TZ = 'UTC';
   let doc = null, byDay = new Map(), view = null, sel = null, sheetOpen = false;
   const MODES = ['day', 'week', 'month'];
-  // Day/Week show the whole day (00:00–24:00) without scrolling: the hour height follows the grid's height (fitHour).
-  const MIN_HOUR = 9, MIN_BLK = 14;
-  let HOUR = 48;
+  // Day/Week hours are a readable 48 px (Google Calendar's default) and the grid scrolls; only a window tall enough to
+  // show all 24 hours at that size or more fits the whole day (issue 42: on phones 24 squeezed hours were unreadable).
+  const BASE_HOUR = 48, MIN_BLK = 14;
+  let HOUR = BASE_HOUR;
   let mode = MODES.includes(localStorage.getItem('wc.mode')) ? localStorage.getItem('wc.mode') : 'week';
   let needScroll = true; // scroll the time grid to "now" on the next render
   let range = null, loading = null; // the loaded live window [from, to)
@@ -171,14 +172,14 @@
     return bars;
   }
 
-  // Hour height that fits all 24 hours in the time grid's visible height (never below MIN_HOUR; then the grid scrolls).
+  // Hour height: the readable default (BASE_HOUR), or larger when the grid is tall enough to fit all 24 hours anyway.
   function fitHour() {
     const body = $('[data-tbody]'), tin = $('[data-tin]');
     const h = body.clientHeight;
     if (!h) return HOUR;
     const cs = getComputedStyle(tin);
     const avail = h - parseFloat(cs.marginTop) - parseFloat(cs.marginBottom) - 1;
-    return Math.max(MIN_HOUR, Math.floor(avail / 24 * 4) / 4);
+    return Math.max(BASE_HOUR, Math.floor(avail / 24 * 4) / 4);
   }
 
   // While an event is being dragged, redraws (the minute tick, a switch poll, a background load) wait for the drop:
@@ -220,7 +221,7 @@
     $('[data-lanes]').innerHTML = bars.map(({ e, s, en, lane, cutL, cutR }) =>
       `<button class="ad${cutL ? ' cut-l' : ''}${cutR ? ' cut-r' : ''}${canDrag(e) ? ' dz' : ' nodrag'}" data-ev="${esc(e.id)}" style="--c:${esc(e.color)};grid-column:${s + 1} / ${en + 2};grid-row:${lane + 1}">${esc(e.title)}</button>`).join('');
 
-    // Hours + columns: 24 rows sized to fit; labels thin out when rows get too short for every one.
+    // Hours + columns: 24 readable rows (the grid scrolls); labels thin out only if rows ever get too short for every one.
     HOUR = fitHour();
     tg.style.setProperty('--hour', `${HOUR}px`);
     tg.classList.toggle('dense', HOUR < 30);
@@ -241,7 +242,7 @@
         const sub = mode === 'day' ? `${time}${e.location ? ` · ${esc(e.location)}` : ''}` : (h >= 44 ? fmtT(e.start) : '');
         // Drag to move and resize (issue 19): a bottom-edge handle on the block that holds the event's end.
         const dz = canDrag(e), rsz = dz && dayKey(new Date(new Date(e.end) - 1)) === k;
-        return `<button class="blk${past ? ' past' : ''}${live ? ' live' : ''}${tight ? ' tight' : ''}${dz ? ' dz' : ' nodrag'}" data-ev="${esc(e.id)}" style="--c:${esc(e.color)};top:${top}px;height:${Math.max(h - 1, MIN_BLK - 1)}px;left:calc(${col / nc * 100}% + 1px);width:calc(${100 / nc}% - 2px)" aria-label="${esc(e.title)}, ${time}${e.live?.by_agent ? ', by your agent' : ''}"><b${tight ? '' : ` style="-webkit-line-clamp:${lines}"`}>${esc(e.title)}</b>${sub ? `<span>${sub}</span>` : ''}${rsz ? `<i class="rsz" aria-hidden="true" style="height:${Math.round(Math.min(7, Math.max(3, h * .3)))}px"></i>` : ''}</button>`;
+        return `<button class="blk${past ? ' past' : ''}${live ? ' live' : ''}${tight ? ' tight' : ''}${dz ? ' dz' : ' nodrag'}" data-ev="${esc(e.id)}" style="--c:${esc(e.color)};top:${top}px;height:${Math.max(h - 1, MIN_BLK - 1)}px;--k:${nc > 1 ? col / (nc - 1) : 0};--nc:${nc}" aria-label="${esc(e.title)}, ${time}${e.live?.by_agent ? ', by your agent' : ''}"><b${tight ? '' : ` style="-webkit-line-clamp:${lines}"`}>${esc(e.title)}</b>${sub ? `<span>${sub}</span>` : ''}${rsz ? `<i class="rsz" aria-hidden="true" style="height:${Math.round(Math.min(7, Math.max(3, h * .3)))}px"></i>` : ''}</button>`;
       }).join('');
       const nowLine = k === tk ? `<i class="now" style="top:${nowMins() / 60 * HOUR}px"></i>` : '';
       return `<div class="col${k === tk ? ' today' : ''}" data-col="${k}">${blocks}${nowLine}</div>`;
@@ -251,11 +252,8 @@
     if (needScroll) {
       needScroll = false;
       let m;
-      if (days.includes(tk)) m = nowMins() - 90;
-      else {
-        const starts = days.flatMap((k) => layoutDay(k).map((x) => x.s));
-        m = starts.length ? Math.min(...starts) - 30 : 8 * 60;
-      }
+      // Today: the current time about an hour below the top. Other days: 07:00 (never midnight), like Google Calendar.
+      m = days.includes(tk) ? nowMins() - 60 : 7 * 60;
       $('[data-tbody]').scrollTop = Math.max(0, m) / 60 * HOUR;
     }
   }
@@ -577,7 +575,7 @@
     document.querySelector('[data-status]').textContent = 'Wizard core is missing. Follow the standalone setup in README.md.';
     return;
   }
-  const VERSION = '0.3.18';
+  const VERSION = '0.3.19';
   WizardApp.ready({ name: 'Calendar', version: VERSION });
 
   // Owner feature switches (GET/POST api/switches, wizard.app-switches/1). All off by default; the Tracker's Try it
@@ -950,6 +948,23 @@
     d.ghost.classList.toggle('tight', gh < 30); // short: title and new time on one line, so the time always shows
     d.ghost.innerHTML = `<b>${esc(d.e.title)}</b><span>${hhmm(t.s.m)}–${hhmm(t.e.m)}</span>`;
     if (d.ghost.parentNode !== col) col.append(d.ghost);
+    edgeScroll();
+  }
+  // The hours scroll (issue 42), so holding a dragged event near the top or bottom edge of the grid scrolls it, faster
+  // the closer to (or past) the edge, until the event reaches the hour you want.
+  function edgeScroll() {
+    const d = drag; if (!d?.on || !d.ok || d.allDay || d.edgeRaf) return;
+    d.edgeRaf = requestAnimationFrame(() => {
+      d.edgeRaf = 0;
+      if (drag !== d) return;
+      const r = tbodyEl.getBoundingClientRect(), zone = 40;
+      // Only towards where the finger or mouse is heading, so grabbing an event that already sits near an edge doesn't scroll.
+      const v = d.y < r.top + zone && d.y < d.y0 - 4 ? -(r.top + zone - d.y) : d.y > r.bottom - zone && d.y > d.y0 + 4 ? d.y - (r.bottom - zone) : 0;
+      if (!v) return;
+      const before = tbodyEl.scrollTop;
+      tbodyEl.scrollTop += Math.sign(v) * Math.min(16, Math.ceil(Math.abs(v) / 4));
+      if (tbodyEl.scrollTop !== before) preview();
+    });
   }
   function dragMove(ev) {
     const d = drag; if (!d || ev.pointerId !== d.id) return;
@@ -964,7 +979,7 @@
   }
   function endDrag(redraw) {
     const d = drag; if (!d) return null;
-    clearTimeout(d.timer); drag = null; dragBusy = false;
+    clearTimeout(d.timer); cancelAnimationFrame(d.edgeRaf || 0); drag = null; dragBusy = false;
     d.unlisten?.();
     document.documentElement.classList.remove('wc-dragging', 'wc-nodrop');
     if (d.on) { eatClick = true; setTimeout(() => { eatClick = false; }, 60); }
@@ -1101,7 +1116,7 @@
   loadSwitches();
   load(false).catch(() => {});
   setInterval(() => { renderTodayBtn(); if (doc && mode !== 'month') renderTime(); }, 60e3);
-  // Window resized (phone rotated, window tiled/maximised): refit the 24 hours.
+  // Window resized (phone rotated, window tiled/maximised): refit the hour height.
   new ResizeObserver(() => { if (doc && mode !== 'month' && fitHour() !== HOUR) renderTime(); }).observe($('[data-tbody]'));
   WizardApp.theme.onChange(() => { if (doc) render(); });
   document.addEventListener('visibilitychange', () => { if (!document.hidden) { loadSwitches(); load(false).catch(() => {}); } });
