@@ -150,6 +150,8 @@ a { color: var(--violet-2); }
 .tg .g { flex: 0 0 var(--g); }
 .tg-head { flex: 0 0 auto; display: flex; padding: 2px 10px 4px 0; }
 .tg-head .days { flex: 1; min-width: 0; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 2px; }
+/* The head strip has as many cells as days it labels: 3 in 3 Day, 7 in Week and Day (issue 47). */
+.tg-head .days { grid-template-columns: repeat(var(--heads, 7), minmax(0, 1fr)); }
 .dhd { min-width: 0; display: flex; flex-direction: column; align-items: center; padding: 3px 0 5px; border-radius: 12px; }
 .dhd .w { font-size: 11px; letter-spacing: .06em; color: var(--ink-3); }
 .dhd .n { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 50%; font-weight: 650; font-size: 15px; }

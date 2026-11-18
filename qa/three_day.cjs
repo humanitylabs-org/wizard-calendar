@@ -46,12 +46,25 @@ const EXTRA = [ev(74, 'Lunch', '2026-11-04T12:00:00+07:00', '2026-11-04T13:00:00
   const cols = () => page.$$eval('[data-tin] .col', (cs) => cs.map((c) => c.dataset.col));
   const heads = () => page.$$eval('[data-heads] .dhd', (hs) => hs.length);
   const mode = () => page.$eval('[data-mode].on', (b) => b.dataset.mode);
+  // Every day label sits centred over its own column (Miguel's kick-back: in 3 Day they kept Week's 1/7 widths).
+  const aligned = async (what) => {
+    const g = await page.evaluate(() => ({
+      h: [...document.querySelectorAll('[data-heads] .dhd')].map((e) => { const r = e.getBoundingClientRect(); return [r.left, r.right]; }),
+      c: [...document.querySelectorAll('[data-tin] .col')].map((e) => { const r = e.getBoundingClientRect(); return [r.left, r.right]; })}));
+    assert.equal(g.h.length, g.c.length, `${what}: one label per column`);
+    g.h.forEach(([l, r], i) => {
+      const hc = (l + r) / 2, [cl, cr] = g.c[i], cc = (cl + cr) / 2;
+      assert.ok(Math.abs(hc - cc) <= 4, `${what}: label ${i + 1} centred over its column (label ${hc.toFixed(0)}, column ${cc.toFixed(0)})`);
+      assert.ok(r - l >= (cr - cl) * 0.8, `${what}: label ${i + 1} as wide as its column`);
+    });
+  };
   try {
     // ---- switch off ----
     await open();
     assert.deepEqual(await tabs(), ['Day', 'Week', 'Month'], 'switch off: no 3 Day tab');
     await page.locator('[data-mode="week"]').click();
     assert.equal((await cols()).length, 7, 'Week still shows 7 days');
+    await aligned('Week');
     await page.locator('[data-mode="day"]').click();
     assert.deepEqual(await cols(), ['2026-11-04'], 'Day still shows one day');
     checks.push('switch off: tabs read Day, Week, Month; Day 1 and Week 7 columns as before');
@@ -65,6 +78,8 @@ const EXTRA = [ev(74, 'Lunch', '2026-11-04T12:00:00+07:00', '2026-11-04T13:00:00
     assert.equal(await mode(), '3day');
     assert.deepEqual(await cols(), ['2026-11-04', '2026-11-05', '2026-11-06'], '3 Day starts on the selected day (today)');
     assert.equal(await heads(), 3, 'three day heads');
+    await aligned('3 Day');
+    checks.push('3 Day: each of the three day labels is centred over its own column (390px phone)');
     await shot(page, 'three-day');
     checks.push('switch on: tabs read Day, 3 Day, Week, Month; 3 Day shows Wed 4 to Fri 6 Nov starting today');
 

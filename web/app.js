@@ -233,6 +233,7 @@
     }
 
     // Day heads: Week → tap opens that day; Day → week strip to hop between days.
+    $('[data-heads]').style.setProperty('--heads', strip.length); // one cell per labelled day, over its column
     $('[data-heads]').innerHTML = strip.map((k) => {
       const c = civil(k), evs = (byDay.get(k) || []).length;
       const cls = ['dhd', k === tk && 'today', mode === 'day' && k === sel && 'sel', k < tk && 'past', [0, 6].includes(c.getUTCDay()) && 'wkend'].filter(Boolean).join(' ');
