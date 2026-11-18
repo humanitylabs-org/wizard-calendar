@@ -6,6 +6,8 @@
  * - switch on: Calendar claims the pinch (meta present), a two-finger pinch zooms the hours and the shell's window
  *   pinch does not fire (no full screen, no window scale);
  * - a diagonal or mostly sideways pinch zooms too (only the fingers' distance counts, as on Android);
+ * - real-finger timing: the first finger is already scrolling the hours when the second lands, and the pinch still
+ *   zooms (a phone starts a scroll after a few pixels; 18 Nov kick-back, pinch tested on a real phone);
  * - switch off: no claim, the shell's window pinch works as before and the hours stay 48 px.
  * Run against qa/live_fake.py (loopback dev mode, WIZARD_CORE_DIR=<wizard-ux>/web/core):
  *   CALENDAR_LIVE_URL=<qa/live_fake.py> node qa/pinch_in_shell.cjs */
@@ -85,9 +87,17 @@ document.querySelector('iframe').addEventListener('load', (e) => bindWinPinch(e.
   const claimed = (frame) => frame.evaluate(() => document.querySelector('meta[name="wizard-os-pinch"]')?.content || '');
   const log = (page) => page.evaluate(() => ({...window.shellLog}));
   // Two fingers around (x, y): gap d0 -> d1 at angle deg (90 = one above the other, 0 = side by side).
-  const pinch = async (cdp, x, y, d0, d1, deg = 90, n = 10) => {
+  // scrollFirst: the first finger lands lower and drags up past the scroll threshold before the second finger lands.
+  const pinch = async (cdp, x, y, d0, d1, deg = 90, n = 10, scrollFirst = false) => {
     const r = deg * Math.PI / 180, pts = (d) => [{x: x - Math.cos(r) * d / 2, y: y - Math.sin(r) * d / 2, id: 1}, {x: x + Math.cos(r) * d / 2, y: y + Math.sin(r) * d / 2, id: 2}];
-    await cdp.send('Input.dispatchTouchEvent', {type: 'touchStart', touchPoints: [pts(d0)[0]]});
+    const p0 = pts(d0)[0];
+    if (scrollFirst) {
+      await cdp.send('Input.dispatchTouchEvent', {type: 'touchStart', touchPoints: [{...p0, y: p0.y + 30}]});
+      for (let k = 1; k <= 6; k++) {
+        await cdp.send('Input.dispatchTouchEvent', {type: 'touchMove', touchPoints: [{...p0, y: p0.y + 30 - k * 5}]});
+        await new Promise((res) => setTimeout(res, 16));
+      }
+    } else await cdp.send('Input.dispatchTouchEvent', {type: 'touchStart', touchPoints: [p0]});
     await cdp.send('Input.dispatchTouchEvent', {type: 'touchStart', touchPoints: pts(d0)});
     for (let i = 1; i <= n; i++) {
       await cdp.send('Input.dispatchTouchEvent', {type: 'touchMove', touchPoints: pts(d0 + (d1 - d0) * i / n)});
@@ -118,6 +128,15 @@ document.querySelector('iframe').addEventListener('load', (e) => bindWinPinch(e.
     const h3 = await hour(frame);
     assert.ok(Math.abs(h3 - 72) <= 1, `a diagonal pinch out zooms by the fingers' distance: ${h3}`);
     checks.push(`any finger angle: sideways pinch in -> ${h2} px, diagonal pinch out x1.5 -> ${h3} px`);
+
+    // Real fingers: the first one is already scrolling when the second lands.
+    const top0 = await frame.evaluate(() => document.querySelector('[data-tbody]').scrollTop);
+    await pinch(cdp, cx, cy, 100, 200, 80, 10, true);
+    const h4 = await hour(frame), l4 = await log(page);
+    const top1 = await frame.evaluate(() => document.querySelector('[data-tbody]').scrollTop);
+    assert.ok(Math.abs(h4 - 144) <= 1.5, `a pinch that starts while one finger is scrolling still zooms: ${h4}`);
+    assert.equal(l4.full, 0, 'and the shell still does not go full screen');
+    checks.push(`first finger already scrolling (scrollTop ${top0} -> ${top1}) when the second lands: x2 pinch -> ${h4} px`);
 
     // Month: nothing to zoom, so the shell gets its pinch back.
     await frame.locator('[data-mode="month"]').click();
