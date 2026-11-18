@@ -5,6 +5,7 @@ Nothing talks to Google, Microsoft, Composio or a real Connected accounts.
 
 python3 qa/connected.py
 """
+import hashlib
 import json
 import os
 import subprocess
@@ -181,11 +182,33 @@ def main():
               and not any(c.get('source') == 'connected-accounts' for c in view['calendars'])
               and not any('Connected accounts' in x for x in view['errors']))
         # Only Connected accounts (no Google or Microsoft app): its calendars still show.
-        proc, host3 = start(dict(env, DATA_DIR=tempfile.mkdtemp(), CALENDAR_LIVE='off'))
+        # Issue 52: a snapshot synced from Connected accounts by an old Calendar (ids 'google:' + sha256([account, id]))
+        # holds the same calendars; each shows once, from the live read-only copy. Other snapshot calendars stay.
+        data3 = tempfile.mkdtemp()
+        old = lambda account, cid: 'google:' + hashlib.sha256(json.dumps([account, cid]).encode()).hexdigest()
+        stale_work, stale_gone = old('acc-work', 'work@example.com'), old('acc-gone', 'gone@example.com')
+        (Path(data3) / 'snapshot.json').write_text(json.dumps({
+            'schemaVersion': 1, 'timezone': 'Asia/Bangkok', 'source': 'connected_accounts',
+            'calendars': [{'id': stale_work, 'name': 'Work'}, {'id': stale_gone, 'name': 'Gone'}, {'id': 'manual', 'name': 'Imported'}],
+            'events': [{'id': f'{cal}:e', 'cal': cal, 'title': title, 'start': '2026-11-04T10:00:00+07:00',
+                        'end': '2026-11-04T11:00:00+07:00', 'allDay': False}
+                       for cal, title in [(stale_work, 'Planning'), (stale_gone, 'Old'), ('manual', 'Dentist')]]}))
+        proc, host3 = start(dict(env, DATA_DIR=data3, CALENDAR_LIVE='off'))
         procs.append(proc)
         status, view = req(host3, '/api/events', headers=owner)
         names = sorted(c['name'] for c in view['calendars'] if c.get('source') == 'connected-accounts')
         check('with only Connected accounts every allowed account shows', status == 200 and names == ['Me', 'Team', 'Work'])
+        ids = {c['id'] for c in view['calendars']}
+        check('an old snapshot copy of a Connected accounts calendar shows once, from the live copy (issue 52)',
+              stale_work not in ids and not any(e['cal'] == stale_work for e in view['events'])
+              and sorted(c['name'] for c in view['calendars']).count('Work') == 1
+              and len([e for e in view['events'] if e['title'] == 'Planning'
+                       and e['cal'] in {stale_work} | {c['id'] for c in view['calendars'] if c['name'] == 'Work'}]) == 1)
+        check('snapshot calendars Connected accounts does not supply still show', {stale_gone, 'manual'} <= ids
+              and {'Old', 'Dentist'} <= {e['title'] for e in view['events']})
+        status, mcp = req(host3, '/mcp', {'jsonrpc': '2.0', 'id': 1, 'method': 'tools/call', 'params': {'name': 'calendar_events'}})
+        seen = json.loads(mcp['result']['content'][0]['text'])
+        check('agents see each event once too', not any(e['cal'] == stale_work for e in seen.get('events', [])))
         # The switch-off knob for a box that must not read it.
         proc, host4 = start(dict(env, DATA_DIR=tempfile.mkdtemp(), CALENDAR_LIVE='off', CALENDAR_CONNECTED_ACCOUNTS='off'))
         procs.append(proc)

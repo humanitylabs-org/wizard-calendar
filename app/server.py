@@ -439,6 +439,20 @@ def _live_range(start=None, end=None):
     return (today + dt.timedelta(days=LIVE_WINDOW[0])).isoformat(), (today + dt.timedelta(days=LIVE_WINDOW[1])).isoformat()
 
 
+_OLD_CA_SNAPSHOT_ID = re.compile(r'google:([0-9a-f]{64})')
+
+
+def _superseded_snapshot_calendars(snapshot_calendars, shared_calendars):
+    """Ids of snapshot calendars that Connected accounts now supplies live (issue 52)."""
+    live_keys = {c['id'][3:] for c in shared_calendars if c.get('id', '').startswith('ca:')}
+    out = set()
+    for cal in snapshot_calendars:
+        match = _OLD_CA_SNAPSHOT_ID.fullmatch(cal.get('id', ''))
+        if match and match.group(1)[:32] in live_keys:
+            out.add(cal['id'])
+    return out
+
+
 def view(start=None, end=None, caller=None):
     """The visible calendar. caller=live.OWNER for the owner's own screen (reads with Calendar's grant, plus the agents'
     pending suggestions); an agent's name otherwise (the source apps apply the owner's agent level)."""
@@ -476,6 +490,14 @@ def view(start=None, end=None, caller=None):
         # connected in the Google app shows once, from the Google app, where it can be changed.
         first, last = live_range or _live_range(start, end)
         shared = CONNECTED.window(first, last, skip_emails=[a['email'] for a in accounts if a.get('source') == 'google' and a.get('calendar')])
+        # Issue 52: an old snapshot synced from Connected accounts (before 0.3.11) holds the same calendars as
+        # 'google:' + sha256([account, calendar id]); the live copy is 'ca:' + the first 32 hex of that same hash.
+        # Show each calendar once, from the live read-only source: leave the stale snapshot copy out of the view
+        # (it stays stored, so it is back if Connected accounts stops sharing that calendar).
+        superseded = _superseded_snapshot_calendars(doc['calendars'], shared['calendars'])
+        if superseded:
+            doc['calendars'] = [c for c in doc['calendars'] if c['id'] not in superseded]
+            doc['events'] = [e for e in doc['events'] if e['cal'] not in superseded]
         for calendar_row in shared['calendars']:
             doc['calendars'].append(dict(calendar_row, hidden=False, ok=True, count=sum(e['cal'] == calendar_row['id'] for e in shared['events'])))
         doc['events'] = doc['events'] + shared['events']
