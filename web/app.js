@@ -623,7 +623,7 @@
     document.querySelector('[data-status]').textContent = 'Wizard core is missing. Follow the standalone setup in README.md.';
     return;
   }
-  const VERSION = '0.3.23';
+  const VERSION = '0.3.24';
   WizardApp.ready({ name: 'Calendar', version: VERSION });
 
   // Owner feature switches (GET/POST api/switches, wizard.app-switches/1). All off by default; the Tracker's Try it
