@@ -318,7 +318,17 @@
     applyMode(); render();
   }
 
+  // In the Wizard shell, two fingers on a window normally pinch the window itself (spread: full screen). While Day or
+  // Week can zoom its hours (switch pinch-zoom, issue 43), Calendar claims them with the shell's opt-out
+  // <meta name="wizard-os-pinch" content="app"> (wizard-ux bindWinPinch); Month leaves them to the shell.
+  function claimPinch() {
+    const want = zoomOn() && mode !== 'month';
+    let m = document.querySelector('meta[name="wizard-os-pinch"]');
+    if (want && !m) { m = document.createElement('meta'); m.name = 'wizard-os-pinch'; m.content = 'app'; document.head.append(m); }
+    else if (!want && m) m.remove();
+  }
   function renderView() {
+    claimPinch();
     if (!sel) return;
     if (mode === 'month') { renderGrid(); renderAgenda(); } else renderTime();
   }
@@ -631,6 +641,7 @@
     if (compact) barEl.insertBefore(statusEl, barGrow); else if (statusEl.parentNode === barEl) statusHome.before(statusEl);
     if (tabsEl) { if (compact && wideBar.matches) barEl.insertBefore(tabsEl, barGrow); else if (tabsEl.parentNode === barEl) { if (tabsHome) tabsHome.before(tabsEl); else $('.app').append(tabsEl); } }
     statusEl.title = compact ? statusEl.textContent : '';
+    claimPinch();
   }
   wideBar.addEventListener?.('change', placeChrome);
   async function loadSwitches() {
@@ -906,8 +917,8 @@
 
 
   // ---- Pinch to zoom the hours (switch pinch-zoom, issue 43; like Google Calendar). Day and Week only. Two fingers
-  // pinched vertically make the hours taller or shorter (0.5x to 3x of the 48 px default, never shorter than a grid
-  // that fills the window); the time between the fingers stays under them. One finger still scrolls, swipes and drags
+  // pinched (at any angle) make the hours taller or shorter (0.5x to 3x of the 48 px default, never shorter than a
+  // grid that fills the window); the time between the fingers stays under them. One finger still scrolls, swipes and drags
   // as before. On a computer, Ctrl + wheel and a trackpad pinch zoom the same way. The level is shared by Day and
   // Week and kept across restarts. ----
   const saveZoom = () => { try { localStorage.setItem('wc.zoom', String(Math.round(zoom * 1000) / 1000)); } catch { /* private mode */ } };
@@ -922,11 +933,14 @@
     body.scrollTop = tinOffset() + mins / 60 * HOUR - (y - r.top);
   }
   const zoomable = () => zoomOn() && mode !== 'month' && !tgEl.hidden && !sheetOpen;
+  // The fingers' distance at any angle (as Android and iOS measure a pinch): a sideways or diagonal pinch zooms too,
+  // where the vertical gap alone barely changes (18 Nov kick-back: "pinch to zoom doesn't work").
+  const span = (a, b) => Math.max(30, Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY));
   function pinchStart(ev) {
     if (pinch || ev.touches.length !== 2 || !zoomable()) return;
     const [a, b] = ev.touches, body = $('[data-tbody]'), r = body.getBoundingClientRect();
     const y = (a.clientY + b.clientY) / 2;
-    const p = pinch = { d0: Math.max(30, Math.abs(a.clientY - b.clientY)), z0: zoom, y, raf: 0,
+    const p = pinch = { d0: span(a, b), z0: zoom, y, raf: 0,
       mins: (y - r.top + body.scrollTop - tinOffset()) / HOUR * 60, seen: new WeakSet() };
     const apply = () => { p.raf = 0; if (pinch === p) zoomAt(p.z0 * p.d / p.d0, p.y, p.mins); };
     // Listeners on the touched elements themselves: a redraw replaces them, and a removed element's touch events no
@@ -937,7 +951,7 @@
       if (te.cancelable) te.preventDefault(); // no page zoom, no scroll while pinching
       if (te.touches.length < 2) return;
       const [f, g] = te.touches;
-      p.d = Math.max(30, Math.abs(f.clientY - g.clientY));
+      p.d = span(f, g);
       p.y = (f.clientY + g.clientY) / 2;
       if (!p.raf) p.raf = requestAnimationFrame(apply);
     };

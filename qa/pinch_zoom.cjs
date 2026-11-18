@@ -54,7 +54,7 @@ const EXTRA = [ev(73, 'Lunch', '2026-11-04T12:00:00+07:00', '2026-11-04T13:00:00
   }, y);
   // Two fingers at x, centred on y, from gap d0 to gap d1 (vertical), in n steps.
   const pinch = async (cdp, x, y, d0, d1, n = 10) => {
-    const pts = (d) => [{x, y: y - d / 2, id: 1}, {x: x + 20, y: y + d / 2, id: 2}];
+    const pts = (d) => [{x, y: y - d / 2, id: 1}, {x, y: y + d / 2, id: 2}];
     await cdp.send('Input.dispatchTouchEvent', {type: 'touchStart', touchPoints: [pts(d0)[0]]});
     await cdp.send('Input.dispatchTouchEvent', {type: 'touchStart', touchPoints: pts(d0)});
     for (let i = 1; i <= n; i++) {
