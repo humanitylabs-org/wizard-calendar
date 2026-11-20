@@ -267,7 +267,7 @@
     "/api/live/create": {
       "post": {
         "summary": "Add an event to a connected calendar {account, title, start, end, time_zone?, location?, description?, attendees?}.",
-        "description": "Owner page only: exact Origin, same-origin fetch, header X-Wizard-Request: calendar.",
+        "description": "Owner page only: exact Origin, same-origin fetch, header X-Wizard-Request: calendar. With account \"local\" (switch local-calendar, issue 58) the event goes on the calendar kept on this Wizard; extra field repeat: none|daily|weekly|monthly|yearly.",
         "responses": {
           "200": {
             "description": "Done"
@@ -328,6 +328,60 @@
           },
           "403": {
             "description": "Not from Calendar"
+          }
+        }
+      }
+    },
+    "/api/local/agent-access": {
+      "post": {
+        "summary": "What agents may do with the calendar on this Wizard {level: no_access|read_only|can_edit}.",
+        "description": "Owner page only: exact Origin, same-origin fetch, header X-Wizard-Request: calendar. Needs switch local-calendar (404 switch_off otherwise).",
+        "responses": {
+          "200": {
+            "description": "{level, levels}"
+          },
+          "403": {
+            "description": "Not the owner"
+          },
+          "404": {
+            "description": "Switch off"
+          }
+        }
+      }
+    },
+    "/api/local/import": {
+      "post": {
+        "summary": "Import a .ics file into the calendar on this Wizard {ics: \"<file text>\"}; events with the same UID are updated, never duplicated.",
+        "description": "Owner page only: exact Origin, same-origin fetch, header X-Wizard-Request: calendar. Needs switch local-calendar (404 switch_off otherwise).",
+        "responses": {
+          "200": {
+            "description": "{added, updated, simplified, skipped}"
+          },
+          "400": {
+            "description": "Not a valid .ics file"
+          },
+          "403": {
+            "description": "Not the owner"
+          },
+          "404": {
+            "description": "Switch off"
+          }
+        }
+      }
+    },
+    "/api/local/export.ics": {
+      "get": {
+        "summary": "The calendar on this Wizard as a .ics file (text/calendar).",
+        "description": "Owner page only (header X-Wizard-Request: calendar). Needs switch local-calendar.",
+        "responses": {
+          "200": {
+            "description": "VCALENDAR"
+          },
+          "403": {
+            "description": "Not the owner"
+          },
+          "404": {
+            "description": "Switch off"
           }
         }
       }

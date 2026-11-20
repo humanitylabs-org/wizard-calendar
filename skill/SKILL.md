@@ -16,6 +16,12 @@ default, Can edit), enforced by the Google and Microsoft apps. At Suggest only y
 suggestions (`suggested: true`) and change nothing until the owner taps Approve in Calendar: tell him it is waiting
 there. Only the owner approves, dismisses or changes the level; a refusal (`agent_access_denied`) is final.
 
+**Calendar on this Wizard** (only when the owner turned it on): `local_calendar_list` reads it; `local_calendar_create`
+/ `_update` / `_delete` add, change and delete its events (repeat: none, daily, weekly, monthly, yearly; for one repeat
+pass its id, `scope: series` for all). Changes work only when the owner set Calendar > Settings > This Wizard's
+calendar > Agents to Can edit (default Read-only); `agent_access_denied` is final, tell the owner where to change it.
+Prefer it when the owner has no Google or Microsoft calendar connected or asks for it.
+
 Fresh installs start empty and show Connect Google / Connect Microsoft. The owner connects inside Calendar (one sign-in
 window, no instructions to follow); never ask for passwords or keys in chat. A read-only alternative is Calendar →
 Settings → Private iCal links with Google's **Secret address in iCal format**. That URL is a bearer secret: never ask the

@@ -102,7 +102,7 @@
     const out = [el('h3', 'Agent access', 'wcs-h')];
     if (!known.length) {
       out.push(el('p', old.length ? `Update the ${old.map(s => NAMES[s.id]).join(' and ')} app to choose what agents may do.`
-        : 'Connect an account first.', 'wcs-muted'));
+        : opts.local && opts.local() ? 'For Google and Microsoft calendars: connect an account first. This Wizard\u2019s calendar has its own setting below.' : 'Connect an account first.', 'wcs-muted'));
       return out;
     }
     // One level for every source; if they ever differ, show the stricter one (choosing sets both).
