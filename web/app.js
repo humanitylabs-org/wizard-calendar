@@ -384,6 +384,7 @@
       ${e.attendees ? `<div class="row"><span class="k">Guests</span><span class="v">${e.attendees}</span></div>` : ''}
       ${e.guests ? `<div class="row"><span class="k">Guests</span><span class="v">${esc(e.guests)}</span></div>` : ''}
       ${desc ? `<div class="row"><span class="k">Notes</span><span class="v">${esc(desc)}</span></div>` : ''}
+      ${e.live?.local && e.live.repeat !== 'none' ? `<div class="row" data-repeats><span class="k">Repeats</span><span class="v">${esc(REPEAT_TEXT[e.live.repeat] || 'Yes')}</span></div>` : ''}
       ${e.live?.by_agent ? '<div class="row" data-by-agent><span class="k">Changed</span><span class="v">by your agent</span></div>' : ''}
       <div class="acts">${e.meet ? `<a href="${esc(e.meet)}" target="_blank" rel="noopener">Join Meet</a>` : ''}${maps ? `<a href="${esc(maps)}" target="_blank" rel="noopener">Map</a>` : ''}${e.link ? `<a href="${esc(e.link)}" target="_blank" rel="noopener">${e.live ? 'Open in ' + (cal?.source === 'microsoft' ? 'Outlook' : 'Google Calendar') : 'Open in Google Calendar'}</a>` : ''}</div>
       ${e.live ? liveActions(e) : readOnlyNote(cal)}<div class="msg" data-c-msg role="status"></div>`;
@@ -423,12 +424,15 @@
   }
 
   // ---- connected calendars: answer, add, edit, delete (the source app does the work) ----
+  const REPEAT_TEXT = { none: 'Doesn’t repeat', daily: 'Every day', weekly: 'Every week', monthly: 'Every month', yearly: 'Every year', custom: 'Custom (from the imported file)' };
   const RSVP = [['accepted', 'Going'], ['tentative', 'Maybe'], ['declined', 'Not going']];
   function liveActions(e) {
     const L = e.live;
     const rsvp = L.invited ? `<div class="sec">Your answer</div><div class="rsvp">${RSVP.map(([v, t]) => `<button class="chip-btn${L.my_response === v ? ' on' : ''}" data-rsvp="${v}" data-evid="${esc(e.id)}" aria-pressed="${L.my_response === v}">${t}</button>`).join('')}</div>` : '';
     const edit = L.is_organizer || !L.invited ? `<button class="btn" data-edit="${esc(e.id)}">Edit</button><button class="btn danger" data-del="${esc(e.id)}">Delete</button>` : '';
-    return `${rsvp}${edit ? `<div class="live-acts">${edit}</div>` : ''}${L.recurring ? '<p class="note">This event repeats. Changes apply to this one when your calendar allows it, otherwise to every repeat.</p>' : ''}`;
+    const note = L.local ? (L.recurring ? '<p class="note">This event repeats. When you change or delete it, choose this one or every repeat.</p>' : '')
+      : L.recurring ? '<p class="note">This event repeats. Changes apply to this one when your calendar allows it, otherwise to every repeat.</p>' : '';
+    return `${rsvp}${edit ? `<div class="live-acts">${edit}</div>` : ''}${note}`;
   }
   async function livePost(path, body) {
     const r = await fetch(new URL(path, location.href).pathname, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-Wizard-Request': 'calendar' }, body: JSON.stringify(body) });
@@ -448,8 +452,11 @@
     const e = evById(btn.dataset.del); if (!e) return;
     if (btn.dataset.sure !== '1') { btn.dataset.sure = '1'; btn.textContent = 'Delete for good?'; return; }
     btn.disabled = true;
-    try { await livePost('api/live/delete', target(e)); closeSheet(); toast('Event deleted'); await load(false); }
-    catch (err) { btn.disabled = false; say(err.message); }
+    // A repeat on this Wizard's calendar (issue 58): only this one, or the whole series.
+    const which = e.live.local && e.live.recurring ? await askRepeat(e, {}, 'Delete a repeating event', 'Delete only this event, or every repeat?') : 'one';
+    if (!which) return;
+    try { await livePost('api/live/delete', { ...target(e), ...(which === 'all' ? { scope: 'series' } : {}) }); closeSheet(); toast(which === 'all' ? 'Every repeat deleted' : 'Event deleted'); await load(false); }
+    catch (err) { btn.disabled = false; if (sheetOpen) say(err.message); else toast(err.message); }
   }
   const pad = (n) => String(n).padStart(2, '0');
   const hhmm = (mins) => `${pad(Math.floor(mins / 60) % 24)}:${pad(mins % 60)}`;
@@ -461,12 +468,17 @@
     const sm = e && !e.allDay ? hm(e.start) : (preset?.mins ?? Math.min(23 * 60, Math.ceil((nowMins() + 1) / 30) * 30));
     const em = e && !e.allDay ? hm(e.end) : Math.min(sm + 60, 23 * 60 + 59);
     const opts = cals.map((c) => `<option value="${esc(c.id)}"${e && e.cal === c.id ? ' selected' : ''}>${esc(c.name)}</option>`).join('');
+    // Repeat: only on this Wizard's calendar (issue 58); Google and Microsoft repeats are set in their own apps.
+    const rep0 = e?.live?.local ? e.live.repeat : 'none';
+    const repeatSel = `<label class="field" data-repeat-field>Repeat<select name="repeat">${Object.entries(REPEAT_TEXT).filter(([k]) => k !== 'custom' || rep0 === 'custom').map(([k, t]) => `<option value="${k}"${k === rep0 ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select></label>`;
+    const hasLocal = cals.some((c) => c.local);
     $('[data-sheet]').innerHTML = `<div class="sh-top"><span class="grab"></span><button class="x" data-close aria-label="Close">✕</button></div><h2>${e ? 'Edit event' : 'New event'}</h2>
       <form class="ev-form" data-form novalidate>
         <label class="field">Title<input type="text" name="title" maxlength="300" required value="${esc(e?.title || '')}" autocomplete="off"></label>
         <label class="check"><input type="checkbox" name="allDay"${all ? ' checked' : ''}> All day</label>
         <div class="two"><label class="field">Starts<input type="date" name="day" value="${day}" required></label><label class="field t">Time<input type="time" name="start" value="${hhmm(sm)}" step="300"></label></div>
         <div class="two"><label class="field">Ends<input type="date" name="endDay" value="${endDay}" required></label><label class="field t">Time<input type="time" name="end" value="${hhmm(em)}" step="300"></label></div>
+        ${hasLocal && (!e || e.live?.local) ? repeatSel : ''}
         <label class="field">Where<input type="text" name="location" maxlength="300" value="${esc(e?.location || '')}" autocomplete="off"></label>
         <label class="field">Notes<textarea name="description" rows="3" maxlength="4000">${esc(e?.description || '')}</textarea></label>
         ${e ? '' : `<label class="field">Calendar<select name="cal">${opts}</select></label>`}
@@ -476,6 +488,9 @@
     const f = $('[data-form]');
     const sync = () => { for (const n of f.querySelectorAll('.t')) n.hidden = f.allDay.checked; };
     f.allDay.addEventListener('change', sync); sync();
+    const repF = f.querySelector('[data-repeat-field]');
+    const syncRep = () => { if (repF && f.cal) repF.hidden = !(cals.find((c) => c.id === f.cal.value) || {}).local; };
+    f.cal?.addEventListener('change', syncRep); syncRep();
     f.day.addEventListener('change', () => { if (f.endDay.value < f.day.value) f.endDay.value = f.day.value; });
     f.addEventListener('submit', (ev) => { ev.preventDefault(); save(f, e); });
     showSheet();
@@ -493,12 +508,24 @@
       body.start = `${f.day.value}T${f.start.value || '09:00'}`; body.end = `${f.endDay.value}T${f.end.value || '10:00'}`; body.time_zone = TZ;
       if (body.end <= body.start) return say('The event ends before it starts.');
     }
+    const local = e ? !!e.live?.local : !!(liveCals().find((c) => c.id === f.cal.value) || {}).local;
+    if (local && f.repeat) {
+      if (!e || f.repeat.value !== 'custom') body.repeat = f.repeat.value;
+      // Editing one repeat of this Wizard's calendar (issue 58): this one, or every repeat (always every repeat when the
+      // repeat itself changes).
+      if (e?.live?.recurring) {
+        const changedRule = f.repeat.value !== e.live.repeat;
+        const which = changedRule ? 'all' : await askRepeat(e, {}, 'Change a repeating event', 'Change only this event, or every repeat?');
+        if (!which) return;
+        if (which === 'all') body.scope = 'series'; else delete body.repeat;
+      }
+    }
     const btn = f.querySelector('[type=submit]'); btn.disabled = true; btn.textContent = 'Saving…';
     try {
       if (e) await livePost('api/live/update', { ...target(e), ...body });
       else await livePost('api/live/create', { account: f.cal.value, ...body });
       sel = f.day.value; closeSheet(); toast(e ? 'Event saved' : 'Event added'); await load(false);
-    } catch (err) { btn.disabled = false; btn.textContent = e ? 'Save' : 'Add event'; say(err.message); }
+    } catch (err) { btn.disabled = false; btn.textContent = e ? 'Save' : 'Add event'; if (sheetOpen) say(err.message); else toast(err.message); }
   }
   function connect(source, backToSettings) {
     if (!window.WizardConnect) return;
@@ -651,6 +678,8 @@
       if (r.ok) switches = (await r.json()).switches || [];
     } catch { /* keep the last known switches (off by default) */ }
     placeChrome();
+    // This Wizard's calendar (issue 58) comes with the events: reload them when its switch flips.
+    if (doc && !!doc.localCalendar !== switchOn('local-calendar')) { load(false).catch(() => {}); return; }
     if (sync3()) return;
     if (was !== JSON.stringify(switches) && doc && mode !== 'month') renderTime();
   }
@@ -671,6 +700,7 @@
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.error || `Request failed (${r.status})`);
       switches = d.switches || switches;
+      if (id === 'local-calendar') await load(false).catch(() => {});
       placeChrome(); if (!sync3() && doc) render();
       if (sheetOpen) openCals();
     } catch (e) { btn.disabled = false; say(e.message); }
@@ -684,7 +714,7 @@
     const list = (doc?.calendars || []).filter(c => !c.live && !c.readOnly).map(c => `<button class="cal${c.hidden ? ' off' : ''}" data-vis="${esc(c.id)}" role="switch" aria-checked="${!c.hidden}"><i style="background:${esc(c.color)}"></i><span class="nm">${esc(c.name)}<small>${c.hidden ? 'Hidden' : `${c.count} events`}</small></span><span class="sw"></span></button>`).join('');
     const sources = (doc?.connected || []).map(source => `<div class="source"><span class="nm">${esc(source.name)}<small>${source.error ? esc(source.error) : source.lastSyncedAt ? `Updated ${esc(fmtSynced(source.lastSyncedAt))}` : 'Google iCal'}</small></span><button class="remove" data-remove-source="${esc(source.id)}">Remove</button></div>`).join('');
     const sync = (doc?.connected || []).length ? `<div class="sync"><span>${doc?.syncedAt ? `Updated ${esc(fmtSynced(doc.syncedAt))}` : 'Not updated yet'}</span><button class="btn" data-sync>Sync now</button></div>` : '';
-    $('[data-sheet]').innerHTML = `${SHEET_TOP}<h2>Settings</h2><div class="wcs" data-wcs></div>
+    $('[data-sheet]').innerHTML = `${SHEET_TOP}<h2>Settings</h2><div class="wcs" data-wcs></div>${localSettings()}
       <h3 class="wcs-h">Private iCal links</h3><p class="note">Read-only. Anyone with the link can read that calendar, so it stays private on this Wizard.</p>${sync}${sources}
       <label class="field">Calendar name<input type="text" data-source-name maxlength="300" autocomplete="off" placeholder="Personal"></label><label class="field">Google iCal link<input type="text" data-source-url maxlength="4096" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://calendar.google.com/…/basic.ics"></label><button class="btn" data-add-source>Add link</button>
       ${list ? `<h3 class="wcs-h">Shown calendars</h3>${list}` : ''}
@@ -694,11 +724,59 @@
     if (!sheetOpen) { sheetOpen = true; sheetBack = WizardApp.back.push(() => { closeSheet(); return true; }); }
     if (window.WizardCalendarSettings && window.WizardConnect && window.WizardConnect.client) {
       window.WizardCalendarSettings.render($('[data-wcs]'), {
-        say, accounts: () => doc?.accounts || [], connect: (source) => connect(source, true), home: openCals,
+        say, accounts: () => doc?.accounts || [], connect: (source) => connect(source, true), home: openCals, local: () => !!doc?.localCalendar,
         changed: async () => { range = null; await load(false).catch(() => {}); },
         page: sheetPage,
       });
     }
+  }
+
+  // This Wizard's own calendar (issue 58, switch local-calendar): what agents may do, .ics import and export.
+  function localSettings() {
+    const L = doc?.localCalendar; if (!L) return '';
+    const levels = (L.levels || []).map((l) => `<option value="${esc(l.id)}"${l.id === L.agentAccess ? ' selected' : ''}>${esc(l.label)}${l.recommended ? ' (recommended)' : ''}</option>`).join('');
+    const what = ((L.levels || []).find((l) => l.id === L.agentAccess) || {}).what || '';
+    return `<h3 class="wcs-h">This Wizard’s calendar</h3><p class="note">Kept on this Wizard, no account needed, and saved with your backups.</p>
+      <label class="field">Agents<select data-local-level aria-label="What your agents may do with this Wizard’s calendar">${levels}</select></label><p class="note" data-local-level-note>${esc(what)}</p>
+      <label class="field">Import a .ics file<input type="file" data-local-import accept=".ics,text/calendar" aria-label="Import a .ics file into this Wizard’s calendar"></label>
+      <button class="btn" data-local-export>Export .ics</button>`;
+  }
+  async function setLocalLevel(sel) {
+    sel.disabled = true;
+    try {
+      const d = await livePost('api/local/agent-access', { level: sel.value });
+      doc.localCalendar = { agentAccess: d.level, levels: d.levels };
+      const l = d.levels.find((x) => x.id === d.level);
+      $('[data-local-level-note]').textContent = l?.what || '';
+      say(`Agents: ${l?.label || d.level}`, true);
+    } catch (e) { sel.value = doc.localCalendar.agentAccess; say(e.message); }
+    finally { sel.disabled = false; }
+  }
+  async function importIcs(input) {
+    const file = input.files[0]; if (!file) return;
+    const hold = WizardApp.update.hold('calendar .ics import');
+    input.disabled = true;
+    try {
+      if (file.size > 8 * 1024 * 1024) throw new Error('File exceeds 8 MiB.');
+      const r = await livePost('api/local/import', { ics: await file.text() });
+      await load(false);
+      if (sheetOpen) openCals();
+      const n = r.added + r.updated;
+      say(`Imported ${n} event${n === 1 ? '' : 's'}${r.updated ? ` (${r.updated} updated)` : ''}.${r.simplified ? ` ${r.simplified} with a repeat Calendar can’t follow were kept once.` : ''}`, true);
+    } catch (e) { input.disabled = false; input.value = ''; say(e.message); }
+    finally { hold.release(); }
+  }
+  async function exportIcs(btn) {
+    btn.disabled = true;
+    try {
+      const r = await fetch(new URL('api/local/export.ics', location.href).pathname, { cache: 'no-store', credentials: 'same-origin', headers: { 'X-Wizard-Request': 'calendar' } });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `Export failed (${r.status})`);
+      const url = URL.createObjectURL(await r.blob());
+      const a = document.createElement('a'); a.href = url; a.download = 'calendar.ics'; document.body.append(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+      say('Exported calendar.ics', true);
+    } catch (e) { say(e.message); }
+    finally { btn.disabled = false; }
   }
 
   async function post(path, body) {
@@ -742,6 +820,8 @@
   const say = (t, ok) => { const m = $('[data-c-msg]'); if (m) { m.className = `msg ${ok ? 'ok' : 'err'}`; m.textContent = t; } };
 
   document.addEventListener('change', async event => {
+    if (event.target.matches('[data-local-level]')) return setLocalLevel(event.target);
+    if (event.target.matches('[data-local-import]')) return importIcs(event.target);
     if (!event.target.matches('[data-import]')) return;
     const input = event.target, file = input.files[0];
     if (!file) return;
@@ -769,6 +849,7 @@
     if (!t) return;
     if (t.matches('[data-sheet-back], [data-close]')) return closeSheet();
     if (t.matches('[data-add-source]')) return addSource(t);
+    if (t.matches('[data-local-export]')) return exportIcs(t);
     if (t.dataset.sgApprove) return decide(t, true);
     if (t.dataset.sgDismiss) return decide(t, false);
     if (t.matches('[data-sg-open]')) return openSuggestions();
@@ -1137,20 +1218,21 @@
       : { start: wallStr(wallOf(d.e.start)), end: wallStr(wallOf(d.e.end)), time_zone: TZ };
     // Every repeat moves by the same minutes (issue 33): only a timed event that stays on its own day, because the
     // repeat rule (e.g. every Monday) is not rewritten.
-    const shift = t.allDay ? null : { start: wallMins(wallOf(d.e.start), t.s), end: wallMins(wallOf(d.e.end), t.e),
-      sameDay: t.s.day === wallOf(d.e.start).day };
+    const shift = t.allDay ? (d.e.live.local ? { start: t.n * 1440, end: t.n * 1440, sameDay: true } : null)
+      : { start: wallMins(wallOf(d.e.start), t.s), end: wallMins(wallOf(d.e.end), t.e), sameDay: t.s.day === wallOf(d.e.start).day };
     dropSave(d.e, next, prev, d.kind === 'resize' ? 'resized' : 'moved', shift);
   }
   // Repeating events: ask before changing. "This event" changes one occurrence by its own id. "All events" (issue 33)
   // moves the whole series by the same minutes through the source app (contract 1.5 `scope: series`): offered when the
   // source names the series (`series_id`) and the drop keeps the event on its own day; otherwise it says where to do it.
   // Resolves 'one', 'all' or null (Cancel, Esc, Back).
-  function askRepeat(e, shift) {
-    const why = !shift ? 'To move every repeat of an all-day event, use Google Calendar or Outlook.'
+  function askRepeat(e, shift, title = 'Change a repeating event', ask = 'Change only this event, or every repeat?') {
+    // This Wizard's own calendar (issue 58) moves, changes and deletes every repeat itself, also to another day.
+    const why = e.live.local ? '' : !shift ? 'To move every repeat of an all-day event, use Google Calendar or Outlook.'
       : !e.live.series_id ? 'Moving every repeat needs a newer Google or Microsoft app on this Wizard; until then, do that in Google Calendar or Outlook.'
         : !shift.sameDay ? 'All events can move to another time on the same day. To move every repeat to another day, use Google Calendar or Outlook.' : '';
     return new Promise((done) => {
-      $('[data-sheet]').innerHTML = `${SHEET_TOP}<h2>Change a repeating event</h2><p class="note" data-repeat-ask>Change only this event, or every repeat?${why ? ` ${esc(why)}` : ' Every repeat moves by the same amount.'}</p>
+      $('[data-sheet]').innerHTML = `${SHEET_TOP}<h2>${esc(title)}</h2><p class="note" data-repeat-ask>${esc(ask)}${why ? ` ${esc(why)}` : shift?.start != null ? ' Every repeat moves by the same amount.' : ''}</p>
         <div class="live-acts"><button class="btn" data-repeat="cancel">Cancel</button><button class="btn" data-repeat="all"${why ? ` disabled title="${esc(why)}"` : ''}>All events</button><button class="btn primary" data-repeat="one">This event</button></div>`;
       showSheet();
       if (!sheetOpen) { sheetOpen = true; sheetBack = WizardApp.back.push(() => { closeSheet(); return true; }); }

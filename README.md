@@ -12,6 +12,18 @@ Calendars the owner shares from **Connected accounts** (`connected-accounts`) sh
 Microsoft calendars (`app/connected.py`; an account also connected in the Google app shows once, from there).
 `CALENDAR_CONNECTED_ACCOUNTS=off` leaves them out. Test: `python3 qa/connected.py` and `node qa/connected.cjs`.
 
+## Calendar on this Wizard (switch `local-calendar`, off by default)
+
+With the switch on, Calendar keeps its own calendar, **On this Wizard**, in `DATA_DIR/local.json` (`app/local_cal.py`):
+no account needed, so a fresh install can add events at once. The owner adds, edits, moves (drag) and deletes events
+(title, time or all day, place, notes, repeat every day / week / month / year) from Day, Week and Month; a repeat can be
+changed or deleted on its own or for every repeat. Settings > This Wizard's calendar imports a `.ics` file (same UID:
+updated, not duplicated) and exports the calendar as `.ics`, and sets what agents may do: No access, Read-only
+(default) or Can edit. Agents use the MCP tools `local_calendar_list` / `_create` / `_update` / `_delete`; changes need
+Can edit (and, on a box whose grants file says `enforce: true`, the gateway's grant). The file lives in the app data,
+so backup and restore keep it. Google, Microsoft, Connected accounts and iCal links show beside it as before.
+Test: `python3 qa/local_calendar.py` and `node qa/local_calendar.cjs` (see its header).
+
 ## Install independently — no app image build
 
 Prerequisites: Docker with Compose v2, Python 3.10+, network access for the pinned Python
