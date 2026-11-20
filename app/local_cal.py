@@ -31,7 +31,7 @@ DEFAULT_LEVEL = 'read_only'
 REPEATS = {'none': '', 'daily': 'FREQ=DAILY', 'weekly': 'FREQ=WEEKLY', 'monthly': 'FREQ=MONTHLY', 'yearly': 'FREQ=YEARLY'}
 DATE = re.compile(r'\d{4}-\d{2}-\d{2}')
 UID = re.compile(r'[0-9a-f]{24}')
-ZONE = re.compile(r'[A-Za-z_]+(/[A-Za-z0-9_+\-]+){0,2}')
+ZONE_CHARS = frozenset('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_+-/')
 TEXT_FIELDS = (('title', 300), ('location', 500), ('description', 4000))
 
 
@@ -41,7 +41,8 @@ def _err(code, message, status=400):
 
 def _zone(name, fallback):
     name = name or fallback
-    if not isinstance(name, str) or not ZONE.fullmatch(name):
+    # A plain character check (no regex on caller text), then ZoneInfo itself (it refuses paths like ../).
+    if not isinstance(name, str) or not 0 < len(name) <= 64 or not set(name) <= ZONE_CHARS or name.startswith('/') or '..' in name:
         raise _err('invalid_time_zone', 'Unknown time zone.')
     try:
         ZoneInfo(name)
