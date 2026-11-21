@@ -1,6 +1,5 @@
-/* Pinch to zoom the hours (switch pinch-zoom, issue 43; like Google Calendar).
- * - Switch off: a two-finger pinch changes nothing (48 px hours as before).
- * - Switch on: pinching out in Week makes the hours taller, pinching in shorter, within 0.5x..3x of 48 px and never
+/* Pinch to zoom the hours (issue 43; like Google Calendar), on for everyone (no switch since switch-default):
+ * - The switch list no longer has pinch-zoom, and pinching out in Week makes the hours taller, pinching in shorter, within 0.5x..3x of 48 px and never
  *   shorter than a grid that fills the window; the time between the fingers stays under them.
  * - The level is shared by Day and Week and survives a reload.
  * - One finger still swipes the day, and hold-then-drag still moves an event to the right time at the zoomed size.
@@ -22,16 +21,9 @@ const EXTRA = [ev(73, 'Lunch', '2026-11-04T12:00:00+07:00', '2026-11-04T13:00:00
   const browser = await chromium.launch(browserPath ? {headless:true, executablePath:browserPath} : {headless:true, channel:process.env.BROWSER_CHANNEL || 'chrome'});
   const checks = [], errors = [];
   const shot = async (page, name) => { if (shots) { await page.waitForTimeout(300); await page.screenshot({path: path.join(shots, name + '.png')}); } };
-  const openContext = async (opts, on) => {
+  const openContext = async (opts) => {
     const context = await browser.newContext(opts);
     await context.clock.setFixedTime(new Date('2026-11-04T10:00:00+07:00'));
-    // The owner's switch state, as the box would serve it.
-    await context.route(/\/api\/switches$/, async (route) => {
-      if (route.request().method() !== 'GET') return route.continue();
-      const res = await route.fetch(), d = await res.json();
-      for (const s of d.switches) if (s.id === 'pinch-zoom') s.on = on;
-      await route.fulfill({response: res, json: d});
-    });
     await context.route(/\/api\/events\?/, async (route) => {
       const res = await route.fetch(), d = await res.json();
       d.events.push(...EXTRA);
@@ -66,27 +58,18 @@ const EXTRA = [ev(73, 'Lunch', '2026-11-04T12:00:00+07:00', '2026-11-04T13:00:00
   };
   const phone = {viewport: {width: 390, height: 844}, hasTouch: true, isMobile: true};
   try {
-    // ---- switch off: nothing changes ----
-    let ctx = await openContext(phone, false);
+    // ---- phone (no switch: always on) ----
+    let ctx = await openContext(phone);
     let page = await ctx.newPage(); page.on('pageerror', (e) => errors.push(String(e)));
+    const swRes = page.waitForResponse((r) => /\/api\/switches$/.test(r.url()) && r.request().method() === 'GET');
     await ready(page);
+    const sw = await (await swRes).json();
+    assert.ok(Array.isArray(sw.switches) && !sw.switches.some((s) => s.id === 'pinch-zoom'), 'pinch-zoom is no longer a switch');
+    checks.push(`switch list (${sw.switches.map((s) => s.id).join(', ')}) has no pinch-zoom: on for everyone`);
     let cdp = await ctx.newCDPSession(page);
     let body = await page.locator('[data-tbody]').boundingBox();
-    await pinch(cdp, body.x + 150, body.y + body.height / 2, 100, 250);
-    await page.waitForTimeout(200);
-    assert.equal(await hour(page), 48, 'switch off: a pinch leaves the 48 px hours alone');
-    assert.equal(await page.evaluate(() => localStorage.getItem('wc.zoom')), null);
-    checks.push('switch off: a two-finger pinch changes nothing (48 px hours)');
-    await ctx.close();
-
-    // ---- switch on: phone ----
-    ctx = await openContext(phone, true);
-    page = await ctx.newPage(); page.on('pageerror', (e) => errors.push(String(e)));
-    await ready(page);
-    cdp = await ctx.newCDPSession(page);
-    body = await page.locator('[data-tbody]').boundingBox();
     const cy = body.y + body.height / 2, cx = body.x + 150;
-    assert.equal(await hour(page), 48, 'switch on starts at the 48 px default');
+    assert.equal(await hour(page), 48, 'starts at the 48 px default');
     const m0 = await minsAt(page, cy);
     await pinch(cdp, cx, cy, 100, 200);
     await page.waitForTimeout(200);
@@ -171,7 +154,7 @@ const EXTRA = [ev(73, 'Lunch', '2026-11-04T12:00:00+07:00', '2026-11-04T13:00:00
     await ctx.close();
 
     // ---- desktop: Ctrl + wheel ----
-    ctx = await openContext({viewport: {width: 1280, height: 700}}, true);
+    ctx = await openContext({viewport: {width: 1280, height: 700}});
     page = await ctx.newPage(); page.on('pageerror', (e) => errors.push(String(e)));
     await ready(page);
     const h0 = await hour(page);

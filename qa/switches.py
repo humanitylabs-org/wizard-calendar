@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Owner switch list QA (wizard.app-switches/1): the list has only live switches, and a removed switch's saved value
-(reply-on-event, dropped in issue 35; drag-events, on for everyone since issue 19) is ignored and dropped from DATA/switches.json without touching the others.
+(reply-on-event, dropped in issue 35; drag-events, on for everyone since issue 19; pinch-zoom, on for everyone since
+issue 43) is ignored and dropped from DATA/switches.json without touching the others.
 
 python3 qa/switches.py
 """
@@ -19,15 +20,15 @@ import server  # noqa: E402
 
 checks = []
 ids = [s['id'] for s in server.SWITCHES]
-assert 'reply-on-event' not in ids and 'drag-events' not in ids, ids
+assert 'reply-on-event' not in ids and 'drag-events' not in ids and 'pinch-zoom' not in ids, ids
 assert all(s['default'] is False and s['issues'] for s in server.SWITCHES)
-checks.append('switch list has no reply-on-event or drag-events; every switch off by default with its issue')
+checks.append('switch list has no reply-on-event, drag-events or pinch-zoom; every switch off by default with its issue')
 
-(data / 'switches.json').write_text(json.dumps({'reply-on-event': True, 'drag-events': True, 'compact-header': True, 'trackpad-swipe': 'yes'}))
+(data / 'switches.json').write_text(json.dumps({'reply-on-event': True, 'drag-events': True, 'pinch-zoom': True, 'compact-header': True, 'trackpad-swipe': 'yes'}))
 doc = server.switches_doc()
 assert [s['id'] for s in doc['switches']] == ids
 assert {s['id']: s['on'] for s in doc['switches']}['compact-header'] is True
-checks.append('saved reply-on-event and drag-events values are ignored; other saved switches keep their state')
+checks.append('saved reply-on-event, drag-events and pinch-zoom values are ignored; other saved switches keep their state')
 
 server.prune_switches()
 assert json.loads((data / 'switches.json').read_text()) == {'compact-header': True}
