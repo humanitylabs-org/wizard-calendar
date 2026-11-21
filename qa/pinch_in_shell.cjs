@@ -3,12 +3,12 @@
  * (spread = full screen, pinch in = tiles/overview) on the frame's document in the capture phase. An app that zooms
  * its own content claims two-finger gestures with <meta name="wizard-os-pinch" content="app"> (wizard-ux web/app.js
  * bindWinPinch / pinchClaimed). This test hosts Calendar in a frame with a faithful copy of that shell code and checks:
- * - switch on: Calendar claims the pinch (meta present), a two-finger pinch zooms the hours and the shell's window
+ * - (no switch since issue 43's switch-default) Calendar claims the pinch (meta present), a two-finger pinch zooms the hours and the shell's window
  *   pinch does not fire (no full screen, no window scale);
  * - a diagonal or mostly sideways pinch zooms too (only the fingers' distance counts, as on Android);
  * - real-finger timing: the first finger is already scrolling the hours when the second lands, and the pinch still
  *   zooms (a phone starts a scroll after a few pixels; 18 Nov kick-back, pinch tested on a real phone);
- * - switch off: no claim, the shell's window pinch works as before and the hours stay 48 px.
+ * - Month: no claim, the shell keeps its window pinch.
  * Run against qa/live_fake.py (loopback dev mode, WIZARD_CORE_DIR=<wizard-ux>/web/core):
  *   CALENDAR_LIVE_URL=<qa/live_fake.py> node qa/pinch_in_shell.cjs */
 const {chromium} = require('playwright');
@@ -64,15 +64,9 @@ document.querySelector('iframe').addEventListener('load', (e) => bindWinPinch(e.
   const browser = await chromium.launch(browserPath ? {headless:true, executablePath:browserPath} : {headless:true, channel:process.env.BROWSER_CHANNEL || 'chrome'});
   const checks = [], errors = [];
   const phone = {viewport: {width: 390, height: 844}, hasTouch: true, isMobile: true};
-  const open = async (on) => {
+  const open = async () => {
     const context = await browser.newContext(phone);
     await context.clock.setFixedTime(new Date('2026-11-04T10:00:00+07:00'));
-    await context.route(/\/api\/switches$/, async (route) => {
-      if (route.request().method() !== 'GET') return route.continue();
-      const res = await route.fetch(), d = await res.json();
-      for (const s of d.switches) if (s.id === 'pinch-zoom') s.on = on;
-      await route.fulfill({response: res, json: d});
-    });
     await context.route(/\/__shell\.html$/, (route) => route.fulfill({contentType: 'text/html', body: SHELL}));
     const page = await context.newPage();
     page.on('pageerror', (e) => errors.push(String(e)));
@@ -108,9 +102,9 @@ document.querySelector('iframe').addEventListener('load', (e) => bindWinPinch(e.
     await new Promise((res) => setTimeout(res, 250));
   };
   try {
-    // ---- switch on: Calendar owns two fingers on its hours ----
-    let {context, page, frame, cdp} = await open(true);
-    assert.equal(await claimed(frame), 'app', 'switch on: Calendar claims the pinch from the shell');
+    // ---- Calendar owns two fingers on its hours (always, no switch) ----
+    let {context, page, frame, cdp} = await open();
+    assert.equal(await claimed(frame), 'app', 'Calendar claims the pinch from the shell');
     let box = await frame.locator('[data-tbody]').boundingBox();
     const cx = box.x + box.width / 2, cy = box.y + box.height / 2;
     assert.equal(await hour(frame), 48);
@@ -143,17 +137,6 @@ document.querySelector('iframe').addEventListener('load', (e) => bindWinPinch(e.
     await page.waitForTimeout(300);
     assert.equal(await claimed(frame), '', 'Month view leaves two fingers to the shell');
     checks.push('Month view: no claim, the shell keeps its window pinch');
-    await context.close();
-
-    // ---- switch off: the shell's window pinch is unchanged ----
-    ({context, page, frame, cdp} = await open(false));
-    assert.equal(await claimed(frame), '', 'switch off: no claim');
-    box = await frame.locator('[data-tbody]').boundingBox();
-    await pinch(cdp, box.x + box.width / 2, box.y + box.height / 2, 100, 220);
-    const l2 = await log(page);
-    assert.equal(await hour(frame), 48, 'switch off: hours stay 48 px');
-    assert.equal(l2.full, 1, 'switch off: spreading two fingers makes the window full screen, as before');
-    checks.push(`switch off: no claim, shell spread -> full screen as before (${JSON.stringify(l2)}), hours 48 px`);
     await context.close();
 
     assert.deepEqual(errors, []);

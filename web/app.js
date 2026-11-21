@@ -12,7 +12,7 @@
   // show all 24 hours at that size or more fits the whole day (issue 42: on phones 24 squeezed hours were unreadable).
   const BASE_HOUR = 48, MIN_BLK = 14;
   let HOUR = BASE_HOUR;
-  // Pinch-zoom level of the Day/Week hours (issue 43, behind switch pinch-zoom): 0.5x to 3x of BASE_HOUR, shared by
+  // Pinch-zoom level of the Day/Week hours (issue 43): 0.5x to 3x of BASE_HOUR, shared by
   // Day and Week and kept across restarts.
   const ZOOM_MIN = 0.5, ZOOM_MAX = 3;
   const clampZoom = (z) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Number.isFinite(z) ? z : 1));
@@ -195,13 +195,11 @@
     const cs = getComputedStyle(tin);
     const avail = h - parseFloat(cs.marginTop) - parseFloat(cs.marginBottom) - 1;
     const fill = Math.floor(avail / 24 * 4) / 4;
-    // Pinch to zoom (switch pinch-zoom, issue 43): the remembered zoom scales the readable default, never below
-    // a grid that still fills the window.
-    if (zoomOn()) return Math.max(fill, Math.round(BASE_HOUR * zoom * 4) / 4);
-    return Math.max(BASE_HOUR, fill);
+    // Pinch to zoom (issue 43): the remembered zoom scales the readable default, never below a grid that still fills
+    // the window.
+    return Math.max(fill, Math.round(BASE_HOUR * zoom * 4) / 4);
   }
 
-  const zoomOn = () => switchOn('pinch-zoom');
   // Where hour 0 starts inside the scrolling hours (the grid's top margin).
   const tinOffset = () => { const b = $('[data-tbody]'); return $('[data-tin]').getBoundingClientRect().top - b.getBoundingClientRect().top + b.scrollTop; };
 
@@ -247,10 +245,9 @@
       `<button class="ad${cutL ? ' cut-l' : ''}${cutR ? ' cut-r' : ''}${canDrag(e) ? ' dz' : ' nodrag'}" data-ev="${esc(e.id)}" style="--c:${esc(e.color)};grid-column:${s + 1} / ${en + 2};grid-row:${lane + 1}">${esc(e.title)}</button>`).join('');
 
     // Hours + columns: 24 readable rows (the grid scrolls); labels thin out only if rows ever get too short for every one.
-    const body = $('[data-tbody]'), hour0 = HOUR, wasZoom = tg.classList.contains('zoomable');
+    const body = $('[data-tbody]'), hour0 = HOUR;
     const top0 = (body.scrollTop - tinOffset()) / hour0; // hours above the top edge, to keep in view on a zoom change
     HOUR = fitHour();
-    tg.classList.toggle('zoomable', zoomOn());
     tg.style.setProperty('--hour', `${HOUR}px`);
     tg.classList.toggle('dense', HOUR < 30);
     const every = HOUR >= 13 ? 1 : HOUR >= 9 ? 2 : 3;
@@ -276,7 +273,7 @@
       return `<div class="col${k === tk ? ' today' : ''}" data-col="${k}">${blocks}${nowLine}</div>`;
     }).join('');
     $('[data-tin]').innerHTML = `<div class="tg-hrs">${hours}</div><div class="tg-cols">${cols}</div>`;
-    if ((wasZoom || zoomOn()) && HOUR !== hour0 && !needScroll && !pinch) body.scrollTop = tinOffset() + Math.max(0, top0) * HOUR;
+    if (HOUR !== hour0 && !needScroll && !pinch) body.scrollTop = tinOffset() + Math.max(0, top0) * HOUR;
 
     if (needScroll) {
       needScroll = false;
@@ -319,10 +316,10 @@
   }
 
   // In the Wizard shell, two fingers on a window normally pinch the window itself (spread: full screen). While Day or
-  // Week can zoom its hours (switch pinch-zoom, issue 43), Calendar claims them with the shell's opt-out
+  // Week zooms its hours (issue 43), Calendar claims them with the shell's opt-out
   // <meta name="wizard-os-pinch" content="app"> (wizard-ux bindWinPinch); Month leaves them to the shell.
   function claimPinch() {
-    const want = zoomOn() && mode !== 'month';
+    const want = mode !== 'month';
     let m = document.querySelector('meta[name="wizard-os-pinch"]');
     if (want && !m) { m = document.createElement('meta'); m.name = 'wizard-os-pinch'; m.content = 'app'; document.head.append(m); }
     else if (!want && m) m.remove();
@@ -916,7 +913,7 @@
   // Horizontal swipe on the time grid changes week/day.
   let tx = null, ty = null;
   $('[data-time]').addEventListener('touchstart', (e) => {
-    if (e.touches.length > 1 && zoomOn()) { tx = null; return; } // a second finger: a pinch (issue 43), not a swipe
+    if (e.touches.length > 1) { tx = null; return; } // a second finger: a pinch (issue 43), not a swipe
     tx = e.touches[0].clientX; ty = e.touches[0].clientY;
   }, { passive: true });
   $('[data-time]').addEventListener('touchend', (e) => {
@@ -997,7 +994,7 @@
   }, { passive: false });
 
 
-  // ---- Pinch to zoom the hours (switch pinch-zoom, issue 43; like Google Calendar). Day and Week only. Two fingers
+  // ---- Pinch to zoom the hours (issue 43; like Google Calendar). Day and Week only. Two fingers
   // pinched (at any angle) make the hours taller or shorter (0.5x to 3x of the 48 px default, never shorter than a
   // grid that fills the window); the time between the fingers stays under them. One finger still scrolls, swipes and drags
   // as before. On a computer, Ctrl + wheel and a trackpad pinch zoom the same way. The level is shared by Day and
@@ -1013,7 +1010,7 @@
     if (HOUR > BASE_HOUR * zoom + 0.5) zoom = clampZoom(HOUR / BASE_HOUR); // the window's fill is the floor: no dead zone
     body.scrollTop = tinOffset() + mins / 60 * HOUR - (y - r.top);
   }
-  const zoomable = () => zoomOn() && mode !== 'month' && !tgEl.hidden && !sheetOpen;
+  const zoomable = () => mode !== 'month' && !tgEl.hidden && !sheetOpen;
   // The fingers' distance at any angle (as Android and iOS measure a pinch): a sideways or diagonal pinch zooms too,
   // where the vertical gap alone barely changes (18 Nov kick-back: "pinch to zoom doesn't work").
   const span = (a, b) => Math.max(30, Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY));
