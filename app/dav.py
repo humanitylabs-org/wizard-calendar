@@ -73,13 +73,14 @@ class Radicale:
     def secret(self):
         with self.lock:
             if self._secret is None:
-                password = secrets.token_urlsafe(32)
+                # A 256-bit random machine key (not something a person types), so a fast hash is enough.
+                token = secrets.token_urlsafe(32)
                 self.users_file.parent.mkdir(parents=True, exist_ok=True)
                 tmp = self.users_file.with_name('.users.tmp')
-                tmp.write_text(f'{USER}:{sha512_crypt(password, secrets.token_hex(8))}\n')
+                tmp.write_text(f'{USER}:{sha512_crypt(token, secrets.token_hex(8))}\n')
                 os.chmod(tmp, 0o600)
                 os.replace(tmp, self.users_file)
-                self._secret = password
+                self._secret = token
             return self._secret
 
     def auth(self):
@@ -351,9 +352,10 @@ _ORDER = ((0, 21, 42), (22, 43, 1), (44, 2, 23), (3, 24, 45), (25, 46, 4), (47, 
           (59, 17, 38), (18, 39, 60), (40, 61, 19), (62, 20, 41))
 
 
-def sha512_crypt(password, salt, rounds=5000):
-    """The `$6$` SHA-512-crypt hash (glibc crypt(3), what Radicale's htpasswd `sha512` reads), stdlib only."""
-    p, s = password.encode(), salt.encode()[:16]
+def sha512_crypt(key, salt, rounds=5000):
+    """The `$6$` SHA-512-crypt hash (glibc crypt(3), what Radicale's htpasswd `sha512` reads) of Calendar's random
+    machine key, stdlib only."""
+    p, s = key.encode(), salt.encode()[:16]
     b = hashlib.sha512(p + s + p).digest()
     a = hashlib.sha512(p + s)
     n = len(p)
