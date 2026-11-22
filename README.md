@@ -24,6 +24,32 @@ Can edit (and, on a box whose grants file says `enforce: true`, the gateway's gr
 so backup and restore keep it. Google, Microsoft, Connected accounts and iCal links show beside it as before.
 Test: `python3 qa/local_calendar.py` and `node qa/local_calendar.cjs` (see its header).
 
+## Calendar and Contacts on Radicale (switch `radicale`, off by default; issue 61)
+
+The runtipi recipe bundles a second service, `wizard-calendar-dav`: the stock upstream Radicale image
+(`ghcr.io/kozea/radicale`, pinned by digest, no fork). It is not the main service, so it sits only on Calendar's own
+app network: no port, not on the Wizard's main network. Calendar makes a random password at each start, keeps it in
+memory only and writes its SHA-512-crypt hash into Radicale's htpasswd file (`DATA_DIR/radicale/users`); it is the
+only thing that talks to Radicale (`app/dav.py`).
+
+With the switch on, the calendar on this Wizard lives in Radicale (`/owner/calendar/`, one .ics object per event
+series) and `local.json` stays a full mirror of it: switching on copies every existing event across (repeats, changed
+and deleted repeats included), Calendar's and agents' changes and .ics imports are pushed at once, a phone's changes
+are pulled on the next read (collection ctag), and switching off goes back to `local.json` with every event kept. When
+Radicale is down Calendar keeps working from the mirror and pushes what is pending later. The agent tools
+(`local_calendar_*`) are unchanged.
+
+Phones: Settings > Phone sync makes a password (shown once, stored as a PBKDF2 hash) and an iPhone setup profile. The
+phone adds `https://<your Wizard>/wizard-calendar/dav/`, user `owner`, as a CalDAV and a CardDAV account (Android:
+DAVx5). Requests with an Origin (web pages) are refused, and nothing answers while the switch is off.
+
+Contacts (humanitylabs-org/contacts, its own `radicale` switch) keeps its address book on the same server:
+`/service/dav/<name>.vcf` (GET, PUT, DELETE, PROPFIND, REPORT) with its `X-Wizard-Grant`, which must match an `incoming`
+row in Calendar's grants file. That path reaches the address book `/owner/contacts/` and nothing else. Calendar's one
+switch covers both apps: every answer carries `X-Wizard-Radicale: on|off`, and while it is off Contacts may still read
+(never write) its cards, so it takes the last phone changes back into its own store and stops syncing.
+Test: `python3 qa/radicale.py` (a real Radicale: the pinned image through docker, or `python3 -m radicale`).
+
 ## Install independently — no app image build
 
 Prerequisites: Docker with Compose v2, Python 3.10+, network access for the pinned Python

@@ -702,6 +702,7 @@
       <h3 class="wcs-h">Snapshot</h3><p class="note">Importing replaces the current snapshot, not your Google calendar. Saved iCal links come back on the next sync.</p><input type="file" data-import accept="application/json,.json" aria-label="Import snapshot JSON"><a class="btn" href="api/export" download="calendar-snapshot.json">Export snapshot</a><div class="msg" data-c-msg role="status"></div>`;
     showSheet();
     if (!sheetOpen) { sheetOpen = true; sheetBack = WizardApp.back.push(() => { closeSheet(); return true; }); }
+    drawPhoneSync();
     if (window.WizardCalendarSettings && window.WizardConnect && window.WizardConnect.client) {
       window.WizardCalendarSettings.render($('[data-wcs]'), {
         say, accounts: () => doc?.accounts || [], connect: (source) => connect(source, true), home: openCals, local: () => !!doc?.localCalendar,
@@ -719,7 +720,38 @@
     return `<h3 class="wcs-h">This Wizard’s calendar</h3><p class="note">Kept on this Wizard, no account needed, and saved with your backups.</p>
       <label class="field">Agents<select data-local-level aria-label="What your agents may do with this Wizard’s calendar">${levels}</select></label><p class="note" data-local-level-note>${esc(what)}</p>
       <label class="field">Import a .ics file<input type="file" data-local-import accept=".ics,text/calendar" aria-label="Import a .ics file into this Wizard’s calendar"></label>
-      <button class="btn" data-local-export>Export .ics</button>`;
+      <button class="btn" data-local-export>Export .ics</button>${phoneSync()}`;
+  }
+
+  // Phone sync (issue 61, switch radicale): this Wizard's calendar and Contacts live in the bundled Radicale server,
+  // which a phone adds as a CalDAV / CardDAV account. The password is shown once, right after it is made.
+  function phoneSync() {
+    if (!switchOn('radicale')) return '';
+    return '<h3 class="wcs-h">Phone sync</h3><div data-phone-sync><p class="note">Loading…</p></div>';
+  }
+  async function drawPhoneSync(made) {
+    const box = $('[data-phone-sync]'); if (!box) return;
+    let s = made;
+    if (!s) {
+      try {
+        const r = await fetch(new URL('api/dav', location.href).pathname, { cache: 'no-store', credentials: 'same-origin', headers: { 'X-Wizard-Request': 'calendar' } });
+        s = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(s.error || `Request failed (${r.status})`);
+      } catch (e) { box.innerHTML = `<p class="note">${esc(e.message)}</p>`; return; }
+    }
+    const row = (k, v) => `<label class="field">${esc(k)}<input type="text" readonly value="${esc(v)}" autocapitalize="off" spellcheck="false"></label>`;
+    box.innerHTML = '<p class="note">Add this Wizard’s calendar and your contacts to an iPhone or Android phone (CalDAV and CardDAV, for example with DAVx⁵ on Android). Changes sync both ways, only on your tailnet.</p>'
+      + (s.server_ok ? '' : '<p class="note">The calendar server is not answering right now. Your events are safe here and sync when it is back.</p>')
+      + (s.enabled ? row('Server', s.url) + row('User name', s.username) : '')
+      + (s.password ? row('Password (shown once)', s.password) + `<a class="btn" href="api/dav/profile.mobileconfig?token=${encodeURIComponent(s.profile_token)}">Install on iPhone</a> ` : '')
+      + (s.enabled && !s.password ? `<p class="note">${s.last_sync ? `Last phone sync ${esc(fmtSynced(new Date(s.last_sync * 1000).toISOString()))}` : 'No phone has synced yet.'}</p>` : '')
+      + `<button class="btn${s.enabled ? '' : ' primary'}" data-phone-setup>${s.enabled ? 'New password' : 'Set up phone sync'}</button>`
+      + (s.enabled ? ' <button class="btn danger" data-phone-off>Turn off phone sync</button>' : '');
+  }
+  async function phoneSyncChange(btn, path) {
+    btn.disabled = true;
+    try { await drawPhoneSync(path === 'api/dav/setup' ? await livePost(path, {}) : (await livePost(path, {}), null)); }
+    catch (e) { btn.disabled = false; say(e.message); }
   }
   async function setLocalLevel(sel) {
     sel.disabled = true;
@@ -830,6 +862,8 @@
     if (t.matches('[data-sheet-back], [data-close]')) return closeSheet();
     if (t.matches('[data-add-source]')) return addSource(t);
     if (t.matches('[data-local-export]')) return exportIcs(t);
+    if (t.matches('[data-phone-setup]')) return phoneSyncChange(t, 'api/dav/setup');
+    if (t.matches('[data-phone-off]')) return phoneSyncChange(t, 'api/dav/off');
     if (t.dataset.sgApprove) return decide(t, true);
     if (t.dataset.sgDismiss) return decide(t, false);
     if (t.matches('[data-sg-open]')) return openSuggestions();
