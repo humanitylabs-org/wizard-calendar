@@ -137,6 +137,10 @@ class Radicale:
         body = ('<?xml version="1.0" encoding="utf-8"?><d:propfind xmlns:d="DAV:" xmlns:cs="http://calendarserver.org/ns/">'
                 '<d:prop><cs:getctag/></d:prop></d:propfind>')
         status, _, data = self.request('PROPFIND', collection, body, {'Depth': '0', 'Content-Type': 'application/xml; charset=utf-8'})
+        if status == 404 and self._ready:
+            self._ready = False  # Radicale's data was reset: make the collections again
+            self.ensure()
+            status, _, data = self.request('PROPFIND', collection, body, {'Depth': '0', 'Content-Type': 'application/xml; charset=utf-8'})
         if status != 207:
             raise DavError(f'Radicale ctag failed ({status})')
         node = ET.fromstring(data).find('.//cs:getctag', NS)
@@ -174,6 +178,10 @@ class Radicale:
         elif etag:
             head['If-Match'] = etag
         status, headers, _ = self.request('PUT', collection + quote(name), text, head)
+        if status in (404, 409) and self._ready:
+            self._ready = False  # Radicale's data was reset: make the collections again, then retry once
+            self.ensure()
+            status, headers, _ = self.request('PUT', collection + quote(name), text, head)
         if status == 412:
             return None  # changed (or created) on the server meanwhile
         if status not in (200, 201, 204):
@@ -300,6 +308,13 @@ class DavCalendar:
         """Bring the phone's changes (new, edited, deleted objects) into the stored events."""
         objects = doc['dav']['objects']
         server = self.rad.objects(CALENDAR)
+        known = {v['href'] for v in objects.values() if not v.get('foreign')}
+        if len(known) >= 3 and not known & set(server):
+            # None of Calendar's objects is there any more: Radicale's data was reset (a phone deletes one by one).
+            # Keep every event and copy them across again.
+            objects.clear()
+            self._push(doc)
+            server = self.rad.objects(CALENDAR)
         by_href = {v['href']: uid for uid, v in objects.items()}
         recs = {r.get('uid'): r for r in doc['events']}
         for name, (etag, text) in server.items():

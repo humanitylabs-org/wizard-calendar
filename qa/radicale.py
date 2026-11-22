@@ -302,6 +302,22 @@ def main():
         titles, _ = box.titles()
         st, _, body = phone(box, password, 'GET', f"/dav/owner/calendar/{made3.get('id')}.ics")
         check('on again: changes made while off are synced', 'Made while off' in titles and st == 200 and titles == sorted(set(on_titles) | {'Made while off'}), titles)
+        # Radicale's data lost (e.g. its folder wiped): Calendar keeps every event and copies them across again.
+        rad.stop()
+        shutil.rmtree(folder / 'collections', ignore_errors=True)
+        rad.start()
+        wiped, _ = box.titles()
+        st, _, body = phone(box, password, 'GET', f"/dav/owner/calendar/{made3.get('id')}.ics")
+        ids_after = {e['uid'] for e in json.loads((data / 'local.json').read_text())['events']}
+        check('Radicale reset: no event lost, all copied across again (same ids)', wiped == titles and st == 200 and made3.get('id') in ids_after, (wiped, st))
+        rad.stop()
+        shutil.rmtree(folder / 'collections', ignore_errors=True)
+        rad.start()
+        st, made4 = box.call('POST', '/api/live/create', {'account': 'local', 'title': 'First after reset', 'start': '2026-12-03T10:00'})
+        st2, _, body = phone(box, password, 'GET', f"/dav/owner/calendar/{made4.get('id')}.ics")
+        after_reset, _ = box.titles()
+        check('Radicale reset, then a change first: saved, pushed, nothing lost', st == 200 and st2 == 200
+              and after_reset == sorted(set(titles) | {'First after reset'}), (st, st2, after_reset))
         check('mobileconfig link works once', box.raw('GET', '/api/dav/profile.mobileconfig?token=' + setup['profile_token'])[0] == 200
               and box.raw('GET', '/api/dav/profile.mobileconfig?token=' + setup['profile_token'])[0] == 404)
     finally:
