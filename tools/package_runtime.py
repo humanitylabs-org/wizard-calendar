@@ -19,10 +19,22 @@ compose = {'services': {'wizard-calendar': {
         'WIZARD_LOCAL_HOSTS': '127.0.0.1:${APP_PORT},localhost:${APP_PORT},wizard-calendar:8799',
         'WIZARD_SHELL_AUTH': '${WIZARD_SHELL_AUTH:-tailscale-serve}',
         'WIZARD_OWNER_LOGINS': '${WIZARD_OWNER_LOGINS:-}',
-        'WIZARD_GRANTS_FILE': '/wizard/grants.json'},
+        'WIZARD_GRANTS_FILE': '/wizard/grants.json',
+        'CALENDAR_RADICALE_URL': 'http://wizard-calendar-dav:5232'},
     'volumes': ['${APP_SOURCE_DIR}:/app:ro', '${APP_DATA_DIR}/data:/data'],
     'command': ['python', 'app/server.py'],
     'x-runtipi': {'is_main': True, 'internal_port': 8799}
+}, 'wizard-calendar-dav': {
+    # Calendar on Radicale (issue 61): the stock upstream image, unmodified. Not main, so it joins only this app's own
+    # network (no port, not on the Wizard's main network): Calendar's server is the only thing that reaches it.
+    # Root like Calendar (root-owned binds, every capability dropped); it waits for Calendar to write its password file.
+    'image': 'ghcr.io/kozea/radicale:3.9.2@sha256:c74545ef669a3166646ec13438a31b5d0bfff198d8ba7ecd214c0a5f40f03fb4',
+    'user': '0:0', 'cap_drop': ['ALL'], 'security_opt': ['no-new-privileges:true'],
+    'mem_limit': '128m', 'tmpfs': ['/tmp'], 'read_only': True,
+    'volumes': ['${APP_DATA_DIR}/data/radicale:/var/lib/radicale'],
+    'command': ['--hosts', '0.0.0.0:5232', '--auth-type', 'htpasswd', '--auth-htpasswd-filename', '/var/lib/radicale/users',
+                '--auth-htpasswd-encryption', 'plain', '--rights-type', 'owner_only',
+                '--storage-filesystem-folder', '/var/lib/radicale/collections'],
 }}, 'x-runtipi': {'schema_version': 2, 'overrides': []}}
 text = json.dumps(compose, indent=2) + '\n'
 if '--check' in sys.argv:

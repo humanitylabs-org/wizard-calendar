@@ -385,6 +385,36 @@
           }
         }
       }
+    },
+    "/api/dav": {
+      "get": {
+        "summary": "Phone sync status (owner page only; radicale switch). Never returns the password.",
+        "responses": {
+          "200": {
+            "description": "switch, enabled, username, url, last_sync, server_ok"
+          }
+        }
+      }
+    },
+    "/api/dav/setup": {
+      "post": {
+        "summary": "Make a new phone sync password (shown once) and a one-time iPhone profile link (owner page only).",
+        "responses": {
+          "200": {
+            "description": "status plus password and profile_token"
+          }
+        }
+      }
+    },
+    "/api/dav/off": {
+      "post": {
+        "summary": "Turn phone sync off (owner page only).",
+        "responses": {
+          "200": {
+            "description": "status"
+          }
+        }
+      }
     }
   }
 }

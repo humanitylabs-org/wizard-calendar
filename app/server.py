@@ -2,6 +2,7 @@
 """Calendar: connected Google/Microsoft calendars (through the source apps), private iCal subscriptions and snapshot import."""
 from __future__ import annotations
 
+import base64
 import datetime as dt
 import hashlib
 import hmac
@@ -9,15 +10,18 @@ import json
 import mimetypes
 import os
 import re
+import secrets
+import sys
 import tempfile
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import quote, unquote, urlsplit
 from zoneinfo import ZoneInfo
 
 import connected
+import dav
 import ical_feed
 import live
 import local_cal
@@ -62,6 +66,11 @@ SWITCHES = [
     {'id': 'trackpad-swipe', 'name': 'Trackpad day swipe',
      'description': 'In Day and Week, a two-finger sideways swipe (or Shift + mouse wheel) moves the calendar one day at a time, like Mac Calendar.',
      'default': False, 'issues': ['humanitylabs-org/wizard-calendar#21']},
+    {'id': 'radicale', 'name': 'Calendar and Contacts on Radicale (phone sync)',
+     'description': 'The calendar on this Wizard (and Contacts, when its own switch is on) is kept in the bundled Radicale '
+                    'server, so an iPhone or Android phone can add it as a CalDAV/CardDAV account and sync natively. '
+                    'Switching off goes back to the old store with every event kept.',
+     'default': False, 'issues': ['humanitylabs-org/wizard-calendar#61']},
 ]
 
 
@@ -127,14 +136,160 @@ def switches_doc():
 
 def set_switch(switch_id, on):
     with LOCK:
+        if switch_id == 'radicale' and not on and switch_on('radicale'):
+            DAV_CAL.load()  # a last pull, so local.json has the phone's latest changes before it is the store again
         saved = _saved_switches()
         saved[switch_id] = on
         _save_path(DATA / 'switches.json', saved)
+        if switch_id == 'radicale' and on:
+            DAV_CAL.load()  # migrate now: every event on this Wizard is copied into Radicale (best effort; retried)
     return switches_doc()
 
 
-# The local calendar (issue 58): DATA/local.json, written like every other state file (atomic, fsynced).
-LOCAL = local_cal.Local(lambda: _read_json(DATA / 'local.json', None), lambda doc: _save_path(DATA / 'local.json', doc), TZ)
+def switch_on(switch_id):
+    return next((s['on'] for s in switches_doc()['switches'] if s['id'] == switch_id), False)
+
+
+# Calendar on Radicale (issue 61, switch `radicale`): the bundled stock Radicale service on the app's own network.
+RADICALE = dav.Radicale(os.environ.get('CALENDAR_RADICALE_URL') or 'http://wizard-calendar-dav:5232',
+                        os.environ.get('CALENDAR_RADICALE_USERS') or DATA / 'radicale' / 'users')
+
+
+def _mirror_read():
+    return _read_json(DATA / 'local.json', None)
+
+
+def _mirror_write(doc):
+    _save_path(DATA / 'local.json', doc)
+
+
+DAV_CAL = dav.DavCalendar(RADICALE, _mirror_read, _mirror_write, local_cal, TZ, log=lambda m: print(m, file=sys.stderr))
+
+
+def _local_load():
+    return DAV_CAL.load() if switch_on('radicale') else _mirror_read()
+
+
+def _local_save(doc):
+    return DAV_CAL.save(doc) if switch_on('radicale') else _mirror_write(doc)
+
+
+# The local calendar (issue 58): DATA/local.json, written like every other state file (atomic, fsynced). With the
+# radicale switch on, Radicale keeps the events and local.json is their mirror (app/dav.py).
+LOCAL = local_cal.Local(_local_load, _local_save, TZ)
+
+# Phone sync (CalDAV + CardDAV through Calendar's /dav/ path): one password the owner makes in Settings, stored hashed.
+PHONE_USER = dav.USER
+PROFILE_TTL = 15 * 60
+_PROFILES = {}  # one-time iPhone setup-profile links: token -> (expires, server, password)
+
+
+def _phone_doc():
+    try:
+        doc = _read_json(DATA / 'dav-phone.json', {})
+    except (OSError, ValueError):
+        doc = {}
+    return doc if isinstance(doc, dict) else {}
+
+
+def _pw_hash(password, salt):
+    return hashlib.pbkdf2_hmac('sha256', password.encode(), bytes.fromhex(salt), 200_000).hex()
+
+
+def phone_status(base_url=''):
+    doc = _phone_doc()
+    return {'switch': switch_on('radicale'), 'enabled': bool(doc.get('hash')), 'username': PHONE_USER,
+            'url': (base_url + '/dav/') if base_url else '', 'last_sync': doc.get('seen'),
+            'server_ok': not DAV_CAL.last_error, 'server_error': DAV_CAL.last_error[:200]}
+
+
+def phone_setup(base_url):
+    password = '-'.join(secrets.token_hex(3) for _ in range(4))
+    salt = secrets.token_hex(16)
+    with LOCK:
+        _save_path(DATA / 'dav-phone.json', {'hash': salt + ':' + _pw_hash(password, salt)})
+    token = secrets.token_urlsafe(18)
+    now = time.time()
+    for t in [t for t, v in _PROFILES.items() if v[0] < now]:
+        _PROFILES.pop(t, None)
+    _PROFILES[token] = (now + PROFILE_TTL, base_url, password)
+    return {**phone_status(base_url), 'password': password, 'profile_token': token}
+
+
+def phone_off():
+    with LOCK:
+        _save_path(DATA / 'dav-phone.json', {})
+    _PROFILES.clear()
+    return phone_status()
+
+
+def phone_auth_ok(header):
+    stored = _phone_doc().get('hash')
+    if not isinstance(stored, str) or ':' not in stored or not (header or '').startswith('Basic '):
+        return False
+    try:
+        user, sep, password = base64.b64decode(header[6:], validate=True).decode().partition(':')
+    except (ValueError, UnicodeError):
+        return False
+    salt, digest = stored.split(':', 1)
+    ok = bool(sep) & hmac.compare_digest(user.lower(), PHONE_USER) & hmac.compare_digest(_pw_hash(password, salt), digest)
+    if ok:
+        doc = _phone_doc()
+        if not doc.get('seen') or time.time() - doc['seen'] > 60:
+            with LOCK:
+                _save_path(DATA / 'dav-phone.json', dict(doc, seen=int(time.time())))
+    return ok
+
+
+def _xml(text):
+    return str(text).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+
+
+def mobileconfig(token):
+    """An iPhone/Mac setup profile with the CalDAV and the CardDAV account (one-time link, 15 minutes)."""
+    item = _PROFILES.pop(token, None)
+    if not item or item[0] < time.time():
+        return None
+    _, server, password = item
+    url = urlsplit(server)
+    host, port = url.hostname or '', url.port or 443
+    path = url.path.rstrip('/') + '/dav/' + PHONE_USER + '/'
+
+    def payload(kind, ident, name):
+        return (f'<dict><key>{kind}AccountDescription</key><string>{_xml(name)}</string>'
+                f'<key>{kind}HostName</key><string>{_xml(host)}</string><key>{kind}Port</key><integer>{port}</integer>'
+                f'<key>{kind}PrincipalURL</key><string>{_xml(path)}</string><key>{kind}UseSSL</key><true/>'
+                f'<key>{kind}Username</key><string>{PHONE_USER}</string><key>{kind}Password</key><string>{_xml(password)}</string>'
+                f'<key>PayloadIdentifier</key><string>os.wizard.calendar.{ident}</string>'
+                f'<key>PayloadType</key><string>com.apple.{ident}.account</string>'
+                f'<key>PayloadUUID</key><string>{_uuid()}</string><key>PayloadVersion</key><integer>1</integer></dict>')
+    return ('<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
+            '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict><key>PayloadContent</key><array>'
+            + payload('CalDAV', 'caldav', 'Wizard Calendar') + payload('CardDAV', 'carddav', 'Wizard Contacts')
+            + '</array><key>PayloadDisplayName</key><string>Wizard Calendar and Contacts</string>'
+            '<key>PayloadIdentifier</key><string>os.wizard.calendar.dav</string><key>PayloadType</key><string>Configuration</string>'
+            f'<key>PayloadUUID</key><string>{_uuid()}</string><key>PayloadVersion</key><integer>1</integer></dict></plist>\n')
+
+
+def _uuid():
+    h = secrets.token_hex(16).upper()
+    return f'{h[:8]}-{h[8:12]}-{h[12:16]}-{h[16:20]}-{h[20:]}'
+
+
+def incoming_grant_ok(headers):
+    """An app's call (Contacts) to /service/dav/: its X-Wizard-Grant must match an `incoming` row of Calendar's grants
+    file (the App Manager writes it for a declared, approved connection). Strict: no grants file means no access."""
+    grant = headers.get('X-Wizard-Grant') or ''
+    if not grant:
+        return False
+    try:
+        with open(GRANTS_FILE) as f:
+            doc = json.loads(f.read(256 * 1024))
+    except (OSError, ValueError):
+        return False
+    rows = doc.get('incoming') if isinstance(doc, dict) and isinstance(doc.get('incoming'), list) else []
+    digest = hashlib.sha256(grant.encode()).hexdigest()
+    return any(isinstance(r, dict) and hmac.compare_digest(str(r.get('sha256') or ''), digest) for r in rows)
 
 
 def gateway_ok(headers):
@@ -643,6 +798,111 @@ class Handler(BaseHTTPRequestHandler):
         logins = [x.strip().lower() for x in self.headers.get_all('Tailscale-User-Login') or []]
         return len(logins) == 1 and (logins[0] in OWNER_LOGINS or (not OWNER_LOGINS and '@' in logins[0]))
 
+    # ---------- CalDAV / CardDAV (issue 61, switch radicale) ----------
+    DAV_METHODS = ('OPTIONS', 'GET', 'HEAD', 'PUT', 'DELETE', 'PROPFIND', 'PROPPATCH', 'REPORT', 'MKCOL', 'MKCALENDAR', 'POST')
+    DAV_PASS_IN = ('Depth', 'Content-Type', 'If-Match', 'If-None-Match', 'Prefer', 'Brief')
+    DAV_PASS_OUT = {'content-type': 'Content-Type', 'etag': 'ETag', 'dav': 'DAV', 'allow': 'Allow', 'last-modified': 'Last-Modified'}
+
+    def base(self):
+        """The public prefix Calendar is served under ('' on its loopback host)."""
+        path = urlsplit(self.path).path
+        if path == '/wizard-calendar' or path.startswith('/wizard-calendar/'):
+            return '/wizard-calendar'
+        return '' if (self.headers.get('Host') or '') in LOCAL_HOSTS else '/wizard-calendar'
+
+    def base_url(self):
+        host = self.headers.get('X-Forwarded-Host') or self.headers.get('Host') or ''
+        scheme = 'http' if host in LOCAL_HOSTS else 'https'
+        return f'{scheme}://{host}{self.base()}'
+
+    def dav_send(self, status, body=b'', headers=None):
+        self.send_response(status)
+        for k, v in (headers or {}).items():
+            self.send_header(k, v)
+        self.send_header('Content-Length', str(len(body)))
+        self.send_header('Cache-Control', 'no-store')
+        self.end_headers()
+        if self.command != 'HEAD':
+            self.wfile.write(body)
+
+    def dav(self):
+        """Phones (/dav/..., own Basic auth) and Contacts (/service/dav/..., its grant) reach the bundled Radicale through
+        here, only while the radicale switch is on. True when the request was handled."""
+        path = self.route()
+        if path in ('/.well-known/caldav', '/.well-known/carddav'):
+            if not switch_on('radicale'):
+                return False
+            self.dav_send(301, headers={'Location': self.base() + '/dav/'})
+            return True
+        phone = path == '/dav' or path.startswith('/dav/')
+        service = path.startswith('/service/dav/')
+        if not (phone or service):
+            return False
+        if self.headers.get('Host') not in HOSTS:
+            self.dav_send(403, b'Unknown host.', {'Content-Type': 'text/plain'})
+            return True
+        if not switch_on('radicale'):
+            self.dav_send(404, b'Phone sync is off.', {'Content-Type': 'text/plain'})
+            return True
+        if self.command not in self.DAV_METHODS:
+            self.dav_send(405, b'', {'Allow': ', '.join(self.DAV_METHODS)})
+            return True
+        if phone:
+            if self.headers.get('Origin') or self.headers.get('Sec-Fetch-Site') in ('cross-site', 'same-site'):
+                self.dav_send(403, b'Not from a web page.', {'Content-Type': 'text/plain'})
+                return True
+            if not phone_auth_ok(self.headers.get('Authorization')):
+                time.sleep(0.5)
+                self.dav_send(401, b'Sign in with the phone sync password from Calendar > Settings.',
+                              {'Content-Type': 'text/plain', 'WWW-Authenticate': 'Basic realm="Wizard Calendar"'})
+                return True
+            target = '/' + path[len('/dav/'):] if path.startswith('/dav/') else '/'
+            script = self.base() + '/dav'
+        else:
+            if not incoming_grant_ok(self.headers):
+                self.dav_send(403, b'Connect Contacts to Calendar first.', {'Content-Type': 'text/plain'})
+                return True
+            # Contacts gets its address book and nothing else.
+            name = unquote(path[len('/service/dav/'):])
+            if name and not dav.safe_name(name):
+                self.dav_send(400, b'Bad name.', {'Content-Type': 'text/plain'})
+                return True
+            if self.command not in ('GET', 'HEAD', 'PUT', 'DELETE', 'PROPFIND', 'REPORT'):
+                self.dav_send(405, b'', {'Allow': 'GET, HEAD, PUT, DELETE, PROPFIND, REPORT'})
+                return True
+            target, script = dav.CONTACTS + quote(name), None
+        query = urlsplit(self.path).query
+        try:
+            size = int(self.headers.get('Content-Length', '0') or 0)
+        except ValueError:
+            size = -1
+        if not 0 <= size <= 8 * 1024 * 1024:
+            self.dav_send(413, b'Too large.', {'Content-Type': 'text/plain'})
+            return True
+        body = self.rfile.read(size) if size else None
+        head = {k: self.headers[k] for k in self.DAV_PASS_IN if self.headers.get(k)}
+        try:
+            RADICALE.ensure()
+            status, headers, data = RADICALE.request(self.command, target + ('?' + query if query and phone else ''), body,
+                                                     head, script_name=script)
+        except dav.DavError:
+            self.dav_send(502, b'The calendar server is starting. Try again in a minute.', {'Content-Type': 'text/plain'})
+            return True
+        out = {self.DAV_PASS_OUT[k]: v for k, v in headers.items() if k in self.DAV_PASS_OUT}
+        if 'location' in headers and phone:
+            out['Location'] = headers['location']
+        if service and data and script is None:
+            # Contacts sees plain names, never Radicale's paths.
+            data = data.replace(dav.CONTACTS.encode(), b'/service/dav/')
+        self.dav_send(status, data, out)
+        return True
+
+    def do_OPTIONS(self):
+        if not self.dav():
+            self.respond({'error': 'not_found'}, 404)
+
+    do_PROPFIND = do_PROPPATCH = do_REPORT = do_PUT = do_DELETE = do_MKCOL = do_MKCALENDAR = do_OPTIONS
+
     def route(self):
         path = urlsplit(self.path).path
         if path == '/wizard-calendar':
@@ -653,9 +913,21 @@ class Handler(BaseHTTPRequestHandler):
         self.do_GET()
 
     def do_GET(self):
+        if self.dav():
+            return
         if not self.trusted():
             return
         path = self.route()
+        if path == '/api/dav':
+            if not self.owner():
+                return self.respond({'error': 'Only your own Calendar page can see phone sync.', 'code': 'owner_only'}, 403)
+            return self.respond(phone_status(self.base_url()))
+        if path == '/api/dav/profile.mobileconfig':
+            token = dict(item.split('=', 1) for item in urlsplit(self.path).query.split('&') if '=' in item).get('token', '')
+            profile = mobileconfig(token) if switch_on('radicale') else None
+            if profile is None:
+                return self.respond({'error': 'This setup link has expired. Make a new one in Calendar > Settings.'}, 404)
+            return self.respond(profile.encode(), mime='application/x-apple-aspen-config')
         if path in ('/healthz', '/api/health'):
             try:
                 source_count = len(ical_sources_public())
@@ -703,11 +975,22 @@ class Handler(BaseHTTPRequestHandler):
         return self.respond((ROOT / 'web' / name).read_bytes(), mime=mimetypes.guess_type(name)[0] or 'application/octet-stream')
 
     def do_POST(self):
+        if self.dav():
+            return
         if not self.trusted():
             return
         path = self.route()
         if path == '/api/switches':
             return self.post_switch()
+        if path in ('/api/dav/setup', '/api/dav/off'):
+            if not self.owner(write=True):
+                return self.respond({'error': 'Open Calendar from your Wizard as its owner to change this.', 'code': 'owner_required'}, 403)
+            if not switch_on('radicale'):
+                return self.respond({'error': 'Phone sync needs the Radicale switch.', 'code': 'switch_off'}, 409)
+            try:
+                return self.respond(phone_setup(self.base_url()) if path == '/api/dav/setup' else phone_off())
+            except OSError:
+                return self.respond({'error': 'Calendar could not save that. Try again.', 'code': 'storage_failure'}, 500)
         allowed = ('/api/import', '/api/calendars/visibility', '/api/sources', '/api/sources/remove', '/api/sync', '/mcp')
         if path in LIVE_WRITES:
             return self.live_write(path)
@@ -907,4 +1190,8 @@ if __name__ == '__main__':
     prune_switches()
     if SYNC_INTERVAL > 0:
         threading.Thread(target=_sync_loop, name='ical-sync', daemon=True).start()
+    try:
+        RADICALE.secret()  # Radicale starts only once its htpasswd file exists (the compose restarts it until then)
+    except OSError as exc:
+        print(f'radicale: cannot write its password file: {exc}', file=sys.stderr)
     ThreadingHTTPServer((BIND, PORT), Handler).serve_forever()
