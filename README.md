@@ -44,7 +44,9 @@ DAVx5). Requests with an Origin (web pages) are refused, and nothing answers whi
 
 Contacts (humanitylabs-org/contacts, its own `radicale` switch) keeps its address book on the same server:
 `/service/dav/<name>.vcf` (GET, PUT, DELETE, PROPFIND, REPORT) with its `X-Wizard-Grant`, which must match an `incoming`
-row in Calendar's grants file. That path reaches the address book `/owner/contacts/` and nothing else.
+row in Calendar's grants file. That path reaches the address book `/owner/contacts/` and nothing else. Calendar's one
+switch covers both apps: every answer carries `X-Wizard-Radicale: on|off`, and while it is off Contacts may still read
+(never write) its cards, so it takes the last phone changes back into its own store and stops syncing.
 Test: `python3 qa/radicale.py` (a real Radicale: the pinned image through docker, or `python3 -m radicale`).
 
 ## Install independently — no app image build

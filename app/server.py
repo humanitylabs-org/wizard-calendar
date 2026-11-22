@@ -841,8 +841,11 @@ class Handler(BaseHTTPRequestHandler):
         if self.headers.get('Host') not in HOSTS:
             self.dav_send(403, b'Unknown host.', {'Content-Type': 'text/plain'})
             return True
-        if not switch_on('radicale'):
-            self.dav_send(404, b'Phone sync is off.', {'Content-Type': 'text/plain'})
+        on = switch_on('radicale')
+        # Off: phones get nothing; Contacts may still read (never write) its address book once, so it can take the
+        # last changes back into its own store (it sees X-Wizard-Radicale: off and stops syncing).
+        if not on and (phone or self.command not in ('GET', 'HEAD', 'PROPFIND', 'REPORT')):
+            self.dav_send(404, b'Phone sync is off.', {'Content-Type': 'text/plain', 'X-Wizard-Radicale': 'off'})
             return True
         if self.command not in self.DAV_METHODS:
             self.dav_send(405, b'', {'Allow': ', '.join(self.DAV_METHODS)})
@@ -894,6 +897,7 @@ class Handler(BaseHTTPRequestHandler):
         if service and data and script is None:
             # Contacts sees plain names, never Radicale's paths.
             data = data.replace(dav.CONTACTS.encode(), b'/service/dav/')
+        out['X-Wizard-Radicale'] = 'on' if on else 'off'
         self.dav_send(status, data, out)
         return True
 
