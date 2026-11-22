@@ -2,7 +2,7 @@
   "openapi": "3.0.3",
   "info": {
     "title": "Wizard Calendar API",
-    "version": "0.3.27"
+    "version": "0.3.28"
   },
   "paths": {
     "/healthz": {
