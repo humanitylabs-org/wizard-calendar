@@ -1,9 +1,7 @@
-/* 3 Day view (switch three-day, issue 47): the view switcher reads Day, 3 Day, Week, Month.
- * - Switch off: no 3 Day tab; Day, Week and Month work as before.
- * - Switch on: the 3 Day tab sits between Day and Week; it shows three columns starting on the selected day (or
- *   today); ‹ › and a sideways swipe move three days; dragging an event to the next column moves it a day; the choice
- *   is remembered across a reload.
- * - Switch turned off while in 3 Day: Calendar falls back to Week.
+/* 3 Day view (issue 47, on for everyone; its switch three-day is gone): the view switcher reads Day, 3 Day, Week, Month.
+ * The 3 Day tab sits between Day and Week; it shows three columns starting on the selected day (or today); ‹ › and a
+ * sideways swipe move three days; dragging an event to the next column moves it a day; the choice is remembered across
+ * a reload. Day and Week keep 1 and 7 columns, and no three-day switch is listed.
  * Run against qa/live_fake.py (loopback dev mode, WIZARD_CORE_DIR=<wizard-ux>/web/core):
  *   CALENDAR_LIVE_URL=<qa/live_fake.py> node qa/three_day.cjs */
 const {chromium} = require('playwright');
@@ -21,24 +19,19 @@ const EXTRA = [ev(74, 'Lunch', '2026-11-04T12:00:00+07:00', '2026-11-04T13:00:00
   const browser = await chromium.launch(browserPath ? {headless:true, executablePath:browserPath} : {headless:true, channel:process.env.BROWSER_CHANNEL || 'chrome'});
   const checks = [], errors = [];
   const shot = async (page, name) => { if (shots) { await page.waitForTimeout(300); await page.screenshot({path: path.join(shots, name + '.png')}); } };
-  const state = {on: false};
   const context = await browser.newContext({viewport: {width: 390, height: 844}, hasTouch: true, isMobile: true});
   await context.clock.setFixedTime(new Date('2026-11-04T10:00:00+07:00')); // a Wednesday
-  // The owner's switch state, as the box would serve it.
-  await context.route(/\/api\/switches$/, async (route) => {
-    if (route.request().method() !== 'GET') return route.continue();
-    const res = await route.fetch(), d = await res.json();
-    for (const s of d.switches) if (s.id === 'three-day') s.on = state.on;
-    await route.fulfill({response: res, json: d});
-  });
   await context.route(/\/api\/events\?/, async (route) => {
     const res = await route.fetch(), d = await res.json();
     d.events.push(...EXTRA);
     await route.fulfill({response: res, json: d});
   });
   const page = await context.newPage(); page.on('pageerror', (e) => errors.push(String(e)));
+  let switchIds = null;
   const open = async () => {
+    const sw = page.waitForResponse((r) => /\/api\/switches$/.test(r.url()) && r.request().method() === 'GET');
     await page.goto(base + '/');
+    switchIds = ((await (await sw).json()).switches || []).map((x) => x.id);
     await page.waitForFunction(() => /visible events/.test(document.querySelector('[data-status]').textContent));
     await page.waitForTimeout(400); // switches loaded
   };
@@ -59,20 +52,16 @@ const EXTRA = [ev(74, 'Lunch', '2026-11-04T12:00:00+07:00', '2026-11-04T13:00:00
     });
   };
   try {
-    // ---- switch off ----
     await open();
-    assert.deepEqual(await tabs(), ['Day', 'Week', 'Month'], 'switch off: no 3 Day tab');
+    assert.ok(!switchIds.includes('three-day'), `no three-day switch listed (${switchIds})`);
+    assert.deepEqual(await tabs(), ['Day', '3 Day', 'Week', 'Month'], '3 Day sits between Day and Week, no switch needed');
     await page.locator('[data-mode="week"]').click();
     assert.equal((await cols()).length, 7, 'Week still shows 7 days');
     await aligned('Week');
     await page.locator('[data-mode="day"]').click();
     assert.deepEqual(await cols(), ['2026-11-04'], 'Day still shows one day');
-    checks.push('switch off: tabs read Day, Week, Month; Day 1 and Week 7 columns as before');
+    checks.push('no three-day switch listed; tabs read Day, 3 Day, Week, Month; Day 1 and Week 7 columns as before');
 
-    // ---- switch on ----
-    state.on = true;
-    await open();
-    assert.deepEqual(await tabs(), ['Day', '3 Day', 'Week', 'Month'], 'switch on: 3 Day sits between Day and Week');
     await page.locator('[data-mode="3day"]').click();
     await page.waitForSelector(sel(G(74)));
     assert.equal(await mode(), '3day');
@@ -81,7 +70,7 @@ const EXTRA = [ev(74, 'Lunch', '2026-11-04T12:00:00+07:00', '2026-11-04T13:00:00
     await aligned('3 Day');
     checks.push('3 Day: each of the three day labels is centred over its own column (390px phone)');
     await shot(page, 'three-day');
-    checks.push('switch on: tabs read Day, 3 Day, Week, Month; 3 Day shows Wed 4 to Fri 6 Nov starting today');
+    checks.push('3 Day shows Wed 4 to Fri 6 Nov starting today');
 
     await page.locator('[data-next-month]').click();
     assert.deepEqual(await cols(), ['2026-11-07', '2026-11-08', '2026-11-09'], '› moves three days');
@@ -131,14 +120,6 @@ const EXTRA = [ev(74, 'Lunch', '2026-11-04T12:00:00+07:00', '2026-11-04T13:00:00
     await page.waitForFunction(() => document.querySelector('[data-mode].on')?.dataset.mode === '3day');
     assert.equal((await cols()).length, 3);
     checks.push('3 Day is remembered across a reload');
-
-    // ---- switch turned off while in 3 Day: back to Week ----
-    state.on = false;
-    await open();
-    assert.equal(await mode(), 'week', 'switch off: a remembered 3 Day opens as Week');
-    assert.deepEqual(await tabs(), ['Day', 'Week', 'Month']);
-    assert.equal((await cols()).length, 7);
-    checks.push('switch off again: the 3 Day tab is gone and a remembered 3 Day opens as Week');
 
     assert.deepEqual(errors, []);
     console.log(JSON.stringify({ok: true, count: checks.length, checks}, null, 2));
