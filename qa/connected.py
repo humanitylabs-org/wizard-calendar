@@ -139,7 +139,7 @@ def main():
         shared = [c for c in view['calendars'] if c.get('source') == 'connected-accounts']
         check('Connected accounts calendars show, read-only', sorted(c['name'] for c in shared) == ['Team', 'Work']
               and all(c['readOnly'] and not c.get('live') for c in shared))
-        check('Google and Microsoft calendars still show next to them', {c['id'] for c in view['calendars'] if c.get('live')}
+        check('Google and Microsoft calendars still show next to them', {c['id'] for c in view['calendars'] if c.get('live') and not c.get('local')}
               == {'live:google:me@gmail.com', 'live:microsoft:me@outlook.com'} and view['mode'] == 'live')
         check('an account also in the Google app shows once (from the Google app)', not any(c['name'] == 'Me' for c in shared))
         check('an account not allowed for Calendar stays out', not any(c['name'] == 'Off' for c in shared))
@@ -213,7 +213,7 @@ def main():
         proc, host4 = start(dict(env, DATA_DIR=tempfile.mkdtemp(), CALENDAR_LIVE='off', CALENDAR_CONNECTED_ACCOUNTS='off'))
         procs.append(proc)
         status, view = req(host4, '/api/events', headers=owner)
-        check('CALENDAR_CONNECTED_ACCOUNTS=off leaves them out', status == 200 and not view['calendars'])
+        check('CALENDAR_CONNECTED_ACCOUNTS=off leaves them out', status == 200 and [c['id'] for c in view['calendars']] == ['local'])
     finally:
         for proc in procs:
             proc.kill()

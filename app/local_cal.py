@@ -1,4 +1,4 @@
-"""The local calendar on this Wizard (issue 58, behind switch local-calendar).
+"""The local calendar on this Wizard (issue 58; on for everyone).
 
 Events live in DATA/local.json, so they are part of the app's data (backup and restore keep them) and need no account.
 The owner creates, edits, moves and deletes them from Day / Week / Month; agents use the local_calendar_* MCP tools,

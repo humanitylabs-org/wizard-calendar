@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The calendar on this Wizard (issue 58, switch local-calendar): no account, create / edit / move / delete with
+"""The calendar on this Wizard (issue 58, on for everyone): no account, create / edit / move / delete with
 repeats, .ics import and export, agent tools gated by the owner's level, and survival across backup and restore.
 
 python3 qa/local_calendar.py
@@ -84,22 +84,13 @@ class Box:
 data = Path(tempfile.mkdtemp(prefix='cal-local-'))
 box = Box(data)
 try:
-    # ---- switched off: nothing changes ----
-    doc = box.events()
-    assert doc['calendars'] == [] and doc['events'] == [] and doc['localCalendar'] is None, doc
-    assert box.tools() == ['calendar_events']
-    status, out = box.call('POST', '/api/live/create', {'account': 'local', 'title': 'x', 'start': '2026-11-20'})
-    assert status == 404 and out['code'] == 'switch_off', (status, out)
-    checks.append('switch off: fresh install stays empty, no local tools, local writes refused')
-
-    status, out = box.call('POST', '/api/switches', {'id': 'local-calendar', 'on': True}, headers={'X-Wizard-Switch': '1'})
-    assert status == 200 and any(s['id'] == 'local-calendar' and s['on'] for s in out['switches']), out
-
-    # ---- switched on: a local calendar with no account ----
+    # ---- no switch (on for everyone since issue 58): a local calendar with no account ----
+    status, out = box.call('GET', '/api/switches', headers={'X-Wizard-Switch': '1'})
+    assert status == 200 and all(s['id'] != 'local-calendar' for s in out['switches']), out
     doc = box.events()
     assert [c['id'] for c in doc['calendars']] == ['local'] and doc['calendars'][0]['live'] and doc['events'] == []
     assert doc['localCalendar']['agentAccess'] == 'read_only'
-    checks.append('switch on: a fresh install with no account has an empty writable calendar "On this Wizard"')
+    checks.append('no switch: a fresh install with no account has an empty writable calendar "On this Wizard"')
 
     # The owner's form (same route as Google/Microsoft events): a weekly event and an all-day one.
     status, out = box.call('POST', '/api/live/create', {'account': 'local', 'title': 'Swim', 'start': '2026-11-02T07:30', 'end': '2026-11-02T08:15',
@@ -180,7 +171,6 @@ try:
     assert 'RECURRENCE-ID;TZID=Europe/Berlin:20261109T093000' in text and 'UID:standup@example.com' in text
     assert box.call('GET', '/api/local/export.ics', owner=False)[0] == 403
     data2 = Path(tempfile.mkdtemp(prefix='cal-local-2-'))
-    (data2 / 'switches.json').write_text(json.dumps({'local-calendar': True}))
     other = Box(data2)
     try:
         status, out = other.call('POST', '/api/local/import', {'ics': text})
