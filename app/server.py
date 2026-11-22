@@ -1195,7 +1195,7 @@ if __name__ == '__main__':
     if SYNC_INTERVAL > 0:
         threading.Thread(target=_sync_loop, name='ical-sync', daemon=True).start()
     try:
-        RADICALE.secret()  # Radicale starts only once its htpasswd file exists (the compose restarts it until then)
+        RADICALE.secret()  # Radicale starts only once its htpasswd file exists (it restarts until then)
     except OSError as exc:
         print(f'radicale: cannot write its password file: {exc}', file=sys.stderr)
     ThreadingHTTPServer((BIND, PORT), Handler).serve_forever()

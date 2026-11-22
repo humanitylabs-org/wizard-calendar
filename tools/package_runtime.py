@@ -27,13 +27,13 @@ compose = {'services': {'wizard-calendar': {
 }, 'wizard-calendar-dav': {
     # Calendar on Radicale (issue 61): the stock upstream image, unmodified. Not main, so it joins only this app's own
     # network (no port, not on the Wizard's main network): Calendar's server is the only thing that reaches it.
-    # Root like Calendar (root-owned binds, every capability dropped); it waits for Calendar to write its password file.
+    # Root like Calendar (root-owned binds, every capability dropped); it waits for Calendar to write its password hash.
     'image': 'ghcr.io/kozea/radicale:3.9.2@sha256:c74545ef669a3166646ec13438a31b5d0bfff198d8ba7ecd214c0a5f40f03fb4',
     'user': '0:0', 'cap_drop': ['ALL'], 'security_opt': ['no-new-privileges:true'],
     'mem_limit': '128m', 'tmpfs': ['/tmp'], 'read_only': True,
     'volumes': ['${APP_DATA_DIR}/data/radicale:/var/lib/radicale'],
     'command': ['--hosts', '0.0.0.0:5232', '--auth-type', 'htpasswd', '--auth-htpasswd-filename', '/var/lib/radicale/users',
-                '--auth-htpasswd-encryption', 'plain', '--rights-type', 'owner_only',
+                '--auth-htpasswd-encryption', 'sha512', '--rights-type', 'owner_only',
                 '--storage-filesystem-folder', '/var/lib/radicale/collections'],
 }}, 'x-runtipi': {'schema_version': 2, 'overrides': []}}
 text = json.dumps(compose, indent=2) + '\n'

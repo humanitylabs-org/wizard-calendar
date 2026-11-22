@@ -2,8 +2,9 @@
 
 Calendar ships a stock Radicale (ghcr.io/kozea/radicale, no fork) as a second service in its runtipi compose. It is on
 the app's own network only (no port, not on the Wizard's main network), so nothing but Calendar's server reaches it.
-Calendar talks to it with a box-local password it writes into Radicale's htpasswd file (DATA/radicale/users), and
-phones reach it only through Calendar's `/dav/` path on the Wizard (the tailnet), with a separate phone password.
+Calendar talks to it with a random password it makes at each start and keeps only in memory (Radicale's htpasswd file,
+DATA/radicale/users, gets its SHA-512-crypt hash), and phones reach it only through Calendar's `/dav/` path on the Wizard
+(the tailnet), with a separate phone password.
 
 Collections, all owned by Radicale user `owner`:
   /owner/calendar/  the calendar on this Wizard (what was DATA/local.json): one .ics object per event series
@@ -64,24 +65,22 @@ class Radicale:
         self.users_file = Path(users_file)
         self.lock = threading.Lock()
         self._ready = False
+        self._secret = None
 
-    # ---------- the box-local password Calendar uses (Radicale htpasswd, plain: the file is in Calendar's data) ----
+    # ---------- the box-local password Calendar uses ----------
+    # A fresh random password each time Calendar starts, kept only in memory; Radicale's htpasswd file gets its
+    # SHA-512-crypt hash (Radicale re-reads the file on every login, so the new one works at once).
     def secret(self):
         with self.lock:
-            try:
-                line = self.users_file.read_text().strip()
-                user, _, password = line.partition(':')
-                if user == USER and len(password) >= 32:
-                    return password
-            except OSError:
-                pass
-            password = secrets.token_urlsafe(32)
-            self.users_file.parent.mkdir(parents=True, exist_ok=True)
-            tmp = self.users_file.with_name('.users.tmp')
-            tmp.write_text(f'{USER}:{password}\n')
-            os.chmod(tmp, 0o600)
-            os.replace(tmp, self.users_file)
-            return password
+            if self._secret is None:
+                password = secrets.token_urlsafe(32)
+                self.users_file.parent.mkdir(parents=True, exist_ok=True)
+                tmp = self.users_file.with_name('.users.tmp')
+                tmp.write_text(f'{USER}:{sha512_crypt(password, secrets.token_hex(8))}\n')
+                os.chmod(tmp, 0o600)
+                os.replace(tmp, self.users_file)
+                self._secret = password
+            return self._secret
 
     def auth(self):
         return 'Basic ' + base64.b64encode(f'{USER}:{self.secret()}'.encode()).decode()
@@ -344,6 +343,49 @@ class DavCalendar:
             objects.pop(uid)
         if gone:
             doc['events'] = [r for r in doc['events'] if r.get('uid') not in gone]
+
+
+_B64 = './0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
+_ORDER = ((0, 21, 42), (22, 43, 1), (44, 2, 23), (3, 24, 45), (25, 46, 4), (47, 5, 26), (6, 27, 48), (28, 49, 7), (50, 8, 29),
+          (9, 30, 51), (31, 52, 10), (53, 11, 32), (12, 33, 54), (34, 55, 13), (56, 14, 35), (15, 36, 57), (37, 58, 16),
+          (59, 17, 38), (18, 39, 60), (40, 61, 19), (62, 20, 41))
+
+
+def sha512_crypt(password, salt, rounds=5000):
+    """The `$6$` SHA-512-crypt hash (glibc crypt(3), what Radicale's htpasswd `sha512` reads), stdlib only."""
+    p, s = password.encode(), salt.encode()[:16]
+    b = hashlib.sha512(p + s + p).digest()
+    a = hashlib.sha512(p + s)
+    n = len(p)
+    while n > 64:
+        a.update(b)
+        n -= 64
+    a.update(b[:n])
+    n = len(p)
+    while n:
+        a.update(b if n & 1 else p)
+        n >>= 1
+    c = a.digest()
+    dp = hashlib.sha512(p * len(p)).digest()
+    pb = (dp * (len(p) // 64 + 1))[:len(p)]
+    ds = hashlib.sha512(s * (16 + c[0])).digest()
+    sb = (ds * (len(s) // 64 + 1))[:len(s)]
+    for r in range(rounds):
+        h = hashlib.sha512(pb if r & 1 else c)
+        if r % 3:
+            h.update(sb)
+        if r % 7:
+            h.update(pb)
+        h.update(c if r & 1 else pb)
+        c = h.digest()
+    out = []
+    for x, y, z in _ORDER:
+        w = (c[x] << 16) | (c[y] << 8) | c[z]
+        out += [_B64[(w >> (6 * i)) & 63] for i in range(4)]
+    w = c[63]
+    out += [_B64[w & 63], _B64[(w >> 6) & 63]]
+    prefix = '$6$' if rounds == 5000 else f'$6$rounds={rounds}$'
+    return prefix + s.decode() + '$' + ''.join(out)
 
 
 def safe_name(name):

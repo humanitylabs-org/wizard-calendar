@@ -83,16 +83,10 @@ class Radicale:
         else:
             subprocess.run(['docker', 'rm', '-f', self.name], capture_output=True)
 
-    def internal(self, method, path, body=None, headers=None):
-        """Talk to Radicale directly as Calendar does (box-local password), to see what is really stored."""
-        line = (self.folder / 'users').read_text().strip()
-        h = {'Authorization': 'Basic ' + base64.b64encode(line.encode()).decode(), **(headers or {})}
-        req = urllib.request.Request(f'http://127.0.0.1:{self.port}{path}', data=body.encode() if isinstance(body, str) else body, method=method, headers=h)
-        try:
-            with urllib.request.urlopen(req, timeout=10) as r:
-                return r.status, r.read().decode()
-        except urllib.error.HTTPError as e:
-            return e.code, e.read().decode()
+    def stored(self):
+        """Calendar's collection as Radicale keeps it on disk."""
+        root = self.folder / 'collections' / 'collection-root' / 'owner' / 'calendar'
+        return {f.name: f.read_text() for f in root.glob('*.ics')} if root.is_dir() else None
 
 
 class Box:
@@ -147,6 +141,15 @@ class Box:
         return out['result']['isError'], json.loads(out['result']['content'][0]['text'])
 
 
+def _status(url, userpass):
+    req = urllib.request.Request(url, method='PROPFIND', headers={'Authorization': 'Basic ' + base64.b64encode(userpass.encode()).decode(), 'Depth': '0'})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return r.status
+    except urllib.error.HTTPError as e:
+        return e.code
+
+
 def phone(box, password, method, path, body=None, headers=None):
     h = {'Authorization': 'Basic ' + base64.b64encode(f'owner:{password}'.encode()).decode(), **(headers or {})}
     return box.raw(method, path, body, h)
@@ -188,16 +191,18 @@ def main():
         check('switch is listed, off by default', any(s['id'] == 'radicale' and s['on'] is False and 'humanitylabs-org/wizard-calendar#61' in s['issues']
                                                      for s in box.call('GET', '/api/switches', headers={'X-Wizard-Switch': '1'})[1]['switches']))
         check('off: phones get nothing', phone(box, 'x', 'PROPFIND', '/dav/', '', {'Depth': '0'})[0] == 404)
-        check('off: nothing is put in Radicale', rad.internal('PROPFIND', '/owner/calendar/', '', {'Depth': '0'})[0] == 404)
+        check('off: nothing is put in Radicale', rad.stored() is None)
+        users = (folder / 'users').read_text()
+        check('Radicale gets a SHA-512 hash, never a clear password', users.startswith('owner:$6$') and len(users.strip()) > 90, users[:12])
+        check('Radicale itself refuses anyone without Calendar\'s password', urllib.request.Request is not None and
+              _status(f'http://127.0.0.1:{rad.port}/owner/', 'owner:guess') == 401)
 
         (data / 'switches.json').write_text(json.dumps({'radicale': True}))
         after, doc = box.titles()
         check('on: the same events show (migrated)', after == before == ['Dentist', 'Holiday', 'Standup', 'Standup (late)'], after)
-        st, listing = rad.internal('REPORT', '/owner/calendar/', '<c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">'
-                                   '<d:prop><c:calendar-data/></d:prop><c:filter><c:comp-filter name="VCALENDAR"/></c:filter></c:calendar-query>',
-                                   {'Depth': '1', 'Content-Type': 'application/xml'})
+        listing = ''.join((rad.stored() or {}).values())
         check('Radicale holds every event, with its repeat, changed repeat and deleted repeat',
-              st == 207 and listing.count('BEGIN:VEVENT') == 4 and 'RRULE:FREQ=DAILY;COUNT=10' in listing
+              listing.count('BEGIN:VEVENT') == 4 and 'RRULE:FREQ=DAILY;COUNT=10' in listing
               and 'EXDATE;TZID=Europe/Berlin:20261125T093000' in listing and 'RECURRENCE-ID;TZID=Europe/Berlin:20261126T093000' in listing
               and 'Bring card' in listing, listing[:300])
         standups = [e for e in doc['events'] if e['title'].startswith('Standup')]
@@ -260,9 +265,7 @@ def main():
         check('agent tool delete removes it from Radicale too', not err and st2 == 404 and 'Agent booked' not in titles, (err, out, st2))
         ics = vevent('google-export-1@google.com', 'From Google export', '20261130T100000', '20261130T110000')
         st, out = box.call('POST', '/api/local/import', {'ics': ics})
-        st2, listing = rad.internal('REPORT', '/owner/calendar/', '<c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">'
-                                    '<d:prop><c:calendar-data/></d:prop><c:filter><c:comp-filter name="VCALENDAR"/></c:filter></c:calendar-query>',
-                                    {'Depth': '1', 'Content-Type': 'application/xml'})
+        listing = ''.join((rad.stored() or {}).values())
         check('an .ics import (Google / Outlook export) lands in Radicale', st == 200 and out.get('added') == 1 and 'From Google export' in listing, (st, out))
 
         # Contacts' address book through its grant

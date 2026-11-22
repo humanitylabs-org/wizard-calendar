@@ -68,7 +68,7 @@
         "--auth-htpasswd-filename",
         "/var/lib/radicale/users",
         "--auth-htpasswd-encryption",
-        "plain",
+        "sha512",
         "--rights-type",
         "owner_only",
         "--storage-filesystem-folder",

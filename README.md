@@ -28,8 +28,9 @@ Test: `python3 qa/local_calendar.py` and `node qa/local_calendar.cjs` (see its h
 
 The runtipi recipe bundles a second service, `wizard-calendar-dav`: the stock upstream Radicale image
 (`ghcr.io/kozea/radicale`, pinned by digest, no fork). It is not the main service, so it sits only on Calendar's own
-app network: no port, not on the Wizard's main network. Calendar writes its box-local password into Radicale's
-htpasswd file (`DATA_DIR/radicale/users`) and is the only thing that talks to it (`app/dav.py`).
+app network: no port, not on the Wizard's main network. Calendar makes a random password at each start, keeps it in
+memory only and writes its SHA-512-crypt hash into Radicale's htpasswd file (`DATA_DIR/radicale/users`); it is the
+only thing that talks to Radicale (`app/dav.py`).
 
 With the switch on, the calendar on this Wizard lives in Radicale (`/owner/calendar/`, one .ics object per event
 series) and `local.json` stays a full mirror of it: switching on copies every existing event across (repeats, changed
