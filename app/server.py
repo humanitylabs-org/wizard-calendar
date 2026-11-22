@@ -62,9 +62,6 @@ SWITCHES = [
     {'id': 'trackpad-swipe', 'name': 'Trackpad day swipe',
      'description': 'In Day and Week, a two-finger sideways swipe (or Shift + mouse wheel) moves the calendar one day at a time, like Mac Calendar.',
      'default': False, 'issues': ['humanitylabs-org/wizard-calendar#21']},
-    {'id': 'three-day', 'name': '3 Day view',
-     'description': 'Adds a 3 Day tab between Day and Week: three days side by side, starting on the selected day. The arrows and a sideways swipe move three days at a time.',
-     'default': False, 'issues': ['humanitylabs-org/wizard-calendar#47']},
     {'id': 'local-calendar', 'name': 'Calendar on this Wizard',
      'description': 'A calendar kept on this Wizard, no account needed: add, edit, move and delete events (with repeats) in Day, Week and Month, import and export .ics files, and let agents add events when you allow it.',
      'default': False, 'issues': ['humanitylabs-org/wizard-calendar#58']},
@@ -76,7 +73,8 @@ def _saved_switches():
     except (OSError, ValueError): saved = {}  # unreadable state falls back to the defaults (off)
     if not isinstance(saved, dict): return {}
     # Only switches Calendar still has: a removed switch's saved value (e.g. reply-on-event, dropped in issue 35, or
-    # drag-events, on for everyone since issue 19; pinch-zoom, on for everyone since issue 43)
+    # drag-events, on for everyone since issue 19; pinch-zoom, on for everyone since issue 43;
+    # three-day, on for everyone since issue 47)
     # is ignored here and dropped from the file on start and on the next change.
     known = {s['id'] for s in SWITCHES}
     return {k: v for k, v in saved.items() if k in known and isinstance(v, bool)}

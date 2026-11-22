@@ -6,7 +6,7 @@
   let TZ = 'UTC';
   let doc = null, byDay = new Map(), view = null, sel = null, sheetOpen = false;
   const MODES = ['day', '3day', 'week', 'month'];
-  // Days shown side by side in the time grid: Day 1, 3 Day 3 (issue 47, behind switch three-day), Week 7.
+  // Days shown side by side in the time grid: Day 1, 3 Day 3 (issue 47), Week 7.
   const SPAN = { day: 1, '3day': 3, week: 7 };
   // Day/Week hours are a readable 48 px (Google Calendar's default) and the grid scrolls; only a window tall enough to
   // show all 24 hours at that size or more fits the whole day (issue 42: on phones 24 squeezed hours were unreadable).
@@ -18,9 +18,6 @@
   const clampZoom = (z) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Number.isFinite(z) ? z : 1));
   let zoom = clampZoom(parseFloat(localStorage.getItem('wc.zoom') || '1'));
   let mode = MODES.includes(localStorage.getItem('wc.mode')) ? localStorage.getItem('wc.mode') : 'week';
-  // 3 Day is only offered while switch three-day is on: a remembered 3 Day opens as Week until the switches say it is on.
-  let want3 = mode === '3day';
-  if (want3) mode = 'week';
   const multi = () => mode === 'week' || mode === '3day'; // several day columns that step and drag across days
   let needScroll = true; // scroll the time grid to "now" on the next render
   let range = null, loading = null; // the loaded live window [from, to)
@@ -307,8 +304,7 @@
   }
 
   function setMode(m) {
-    if (!MODES.includes(m) || (m === '3day' && !switchOn('three-day'))) return;
-    want3 = false;
+    if (!MODES.includes(m)) return;
     if (m === '3day') d3 = null; // starts on the selected day
     mode = m; localStorage.setItem('wc.mode', m); needScroll = true;
     if (m === 'month' && sel) view = [+sel.slice(0, 4), +sel.slice(5, 7) - 1];
@@ -677,17 +673,7 @@
     placeChrome();
     // This Wizard's calendar (issue 58) comes with the events: reload them when its switch flips.
     if (doc && !!doc.localCalendar !== switchOn('local-calendar')) { load(false).catch(() => {}); return; }
-    if (sync3()) return;
     if (was !== JSON.stringify(switches) && doc && mode !== 'month') renderTime();
-  }
-  // The 3 Day tab (issue 47) shows only while switch three-day is on. Turning it off leaves 3 Day for Week; a 3 Day
-  // remembered from before opens again once the switch is on. True when it changed the view.
-  function sync3() {
-    const on = switchOn('three-day');
-    for (const b of document.querySelectorAll('[data-mode="3day"]')) b.hidden = !on;
-    if (on && want3 && mode === 'week') { want3 = false; if (sel) { setMode('3day'); return true; } want3 = true; }
-    if (!on && mode === '3day') { mode = 'week'; want3 = true; needScroll = true; applyMode(); if (doc) render(); return true; }
-    return false;
   }
   async function toggleSwitch(btn) {
     const id = btn.dataset.switch, on = !switchOn(id);
@@ -698,7 +684,7 @@
       if (!r.ok) throw new Error(d.error || `Request failed (${r.status})`);
       switches = d.switches || switches;
       if (id === 'local-calendar') await load(false).catch(() => {});
-      placeChrome(); if (!sync3() && doc) render();
+      placeChrome(); if (doc) render();
       if (sheetOpen) openCals();
     } catch (e) { btn.disabled = false; say(e.message); }
   }
@@ -961,7 +947,7 @@
       doc = d; range = d.liveRange || null; sgGen++;
       if (!sel) sel = todayKey();
       if (!view) view = [+sel.slice(0, 4), +sel.slice(5, 7) - 1];
-      if (!sync3()) render();
+      render();
       if (refresh && d.syncing) { await new Promise((ok) => setTimeout(ok, 2500)); return load(false); }
     } catch (err) {
       $('[data-status]').textContent = 'Unable to load calendar. Open Settings and Sync now to retry.'; $('[data-status]').classList.remove('wc-sr'); $('[data-status]').hidden = false;
