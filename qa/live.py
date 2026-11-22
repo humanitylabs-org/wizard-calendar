@@ -132,7 +132,7 @@ def main():
         check('both sources connected', status == 200 and live['connected'] and len(live['sources']) == 2)
         status, view = req('/api/events?from=2026-10-12&to=2026-12-21')
         check('events load', status == 200, )
-        cals = [c for c in view['calendars'] if c.get('live')]
+        cals = [c for c in view['calendars'] if c.get('live') and not c.get('local')]
         check('one live calendar per account', sorted(c['id'] for c in cals) == ['live:google:me@gmail.com', 'live:microsoft:me@outlook.com'])
         check('mode is live', view['mode'] == 'live' and view['liveRange'] == ['2026-10-12', '2026-12-21'])
         ev = {e['live']['id']: e for e in view['events'] if e['cal'] == 'live:google:me@gmail.com'}
@@ -150,7 +150,7 @@ def main():
         status, mcp = req('/mcp', {'jsonrpc': '2.0', 'id': 1, 'method': 'tools/call', 'params': {'name': 'calendar_events'}})
         check('agent reads live events (read only)', 'Standup' in mcp['result']['content'][0]['text'])
         status, tools = req('/mcp', {'jsonrpc': '2.0', 'id': 2, 'method': 'tools/list'})
-        check('agent has no write tool', [t['name'] for t in tools['result']['tools']] == ['calendar_events'])
+        check('agent has no write tool for Google/Microsoft (only this Wizard\'s calendar tools)', [t['name'] for t in tools['result']['tools'] if not t['name'].startswith('local_calendar_')] == ['calendar_events'])
 
         status, mcp = req('/mcp', {'jsonrpc': '2.0', 'id': 3, 'method': 'tools/call', 'params': {'name': 'calendar_events'}}, {'X-Wizard-Agent': 'helper'})
         check('agent name passed on, never a grant', [c for c in g.calls if c[0] == 'calendar_list_events'][-1][2:] == ('helper', None))
@@ -245,7 +245,7 @@ def main():
 
         g.srv.shutdown(); g.srv.server_close()
         status, view = req('/api/events?from=2026-10-13&to=2026-12-21')
-        check('one source down: the other still shows', status == 200 and [c['id'] for c in view['calendars'] if c.get('live')] == ['live:microsoft:me@outlook.com'])
+        check('one source down: the other still shows', status == 200 and [c['id'] for c in view['calendars'] if c.get('live') and not c.get('local')] == ['live:microsoft:me@outlook.com'])
         status, live = req('/api/live')
         check('down source reported', not [s for s in live['sources'] if s['id'] == 'google'][0]['available'])
         status, page = 200, urllib.request.urlopen(f'http://{host}/connect.js').read().decode()

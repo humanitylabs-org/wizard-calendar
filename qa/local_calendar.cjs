@@ -1,12 +1,12 @@
-/* The calendar on this Wizard (switch local-calendar, issue 58), on a phone, with no account:
- * - Switch on, fresh install: the Week grid shows (no "Connect your calendar" wall) and + adds an event.
+/* The calendar on this Wizard (issue 58, on for everyone), on a phone, with no account:
+ * - Fresh install: the Week grid shows (no "Connect your calendar" wall) and + adds an event.
  * - Add a weekly event from +; it shows this week and next week; Month shows it too.
  * - Edit it from a later repeat with "All events": every repeat changes. Delete one repeat with "This event": only
  *   that one goes.
  * - Hold and drag a repeat to another time, "This event": only that one moves.
  * - Settings > This Wizard's calendar: Agents level, .ics import (the events show), .ics export (a file downloads).
- * Run against app/server.py with CALENDAR_LIVE=off CALENDAR_DEV_MODE=loopback-single-owner, the switch on in
- * DATA_DIR/switches.json and WIZARD_CORE_DIR=<wizard-ux>/web/core:
+ * Run against app/server.py with CALENDAR_LIVE=off CALENDAR_DEV_MODE=loopback-single-owner,
+ * WIZARD_CORE_DIR=<wizard-ux>/web/core:
  *   CALENDAR_URL=http://127.0.0.1:<port> node qa/local_calendar.cjs */
 const {chromium} = require('playwright');
 const fs = require('node:fs'), os = require('node:os'), path = require('node:path'), assert = require('node:assert/strict');
@@ -33,7 +33,7 @@ const shots = process.env.SHOTS_DIR || '';
   if (await page.$eval('[data-mode="week"]', (b) => !b.classList.contains('on'))) await page.click('[data-mode="week"]');
   assert.equal(await page.$eval('[data-hello]', (h) => h.hidden), true, 'no Connect wall');
   assert.equal(await page.$eval('.tab-new[data-new]', (b) => b.hidden), false, '+ shows');
-  checks.push('switch on, no account: the Week grid shows and + is there');
+  checks.push('no account: the Week grid shows and + is there');
   await shot('local-1-empty-week');
 
   // Add a weekly event from +.

@@ -12,9 +12,9 @@ Calendars the owner shares from **Connected accounts** (`connected-accounts`) sh
 Microsoft calendars (`app/connected.py`; an account also connected in the Google app shows once, from there).
 `CALENDAR_CONNECTED_ACCOUNTS=off` leaves them out. Test: `python3 qa/connected.py` and `node qa/connected.cjs`.
 
-## Calendar on this Wizard (switch `local-calendar`, off by default)
+## Calendar on this Wizard
 
-With the switch on, Calendar keeps its own calendar, **On this Wizard**, in `DATA_DIR/local.json` (`app/local_cal.py`):
+Calendar keeps its own calendar, **On this Wizard**, in `DATA_DIR/local.json` (`app/local_cal.py`):
 no account needed, so a fresh install can add events at once. The owner adds, edits, moves (drag) and deletes events
 (title, time or all day, place, notes, repeat every day / week / month / year) from Day, Week and Month; a repeat can be
 changed or deleted on its own or for every repeat. Settings > This Wizard's calendar imports a `.ics` file (same UID:

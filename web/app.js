@@ -671,8 +671,6 @@
       if (r.ok) switches = (await r.json()).switches || [];
     } catch { /* keep the last known switches (off by default) */ }
     placeChrome();
-    // This Wizard's calendar (issue 58) comes with the events: reload them when its switch flips.
-    if (doc && !!doc.localCalendar !== switchOn('local-calendar')) { load(false).catch(() => {}); return; }
     if (was !== JSON.stringify(switches) && doc && mode !== 'month') renderTime();
   }
   async function toggleSwitch(btn) {
@@ -683,7 +681,6 @@
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.error || `Request failed (${r.status})`);
       switches = d.switches || switches;
-      if (id === 'local-calendar') await load(false).catch(() => {});
       placeChrome(); if (doc) render();
       if (sheetOpen) openCals();
     } catch (e) { btn.disabled = false; say(e.message); }
@@ -714,7 +711,7 @@
     }
   }
 
-  // This Wizard's own calendar (issue 58, switch local-calendar): what agents may do, .ics import and export.
+  // This Wizard's own calendar (issue 58): what agents may do, .ics import and export.
   function localSettings() {
     const L = doc?.localCalendar; if (!L) return '';
     const levels = (L.levels || []).map((l) => `<option value="${esc(l.id)}"${l.id === L.agentAccess ? ' selected' : ''}>${esc(l.label)}${l.recommended ? ' (recommended)' : ''}</option>`).join('');
