@@ -27,8 +27,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'qa'))
 COMPOSE = json.loads((ROOT / 'runtipi' / 'docker-compose.yml').read_text())
-IMAGE = COMPOSE['services']['wizard-calendar-dav']['image']
-ARGS = COMPOSE['services']['wizard-calendar-dav']['command']
+DAV = COMPOSE['services']['wizard-calendar-dav']
+IMAGE, ARGS = DAV['image'], DAV['command']
 checks = []
 
 
@@ -50,19 +50,39 @@ class Radicale:
         self.name = f'qa-radicale-{os.getpid()}'
         self.proc = None
 
-    def start(self):
-        # The same arguments as the shipped compose service; only the folder is mounted from here.
+    def start(self, wait=True):
+        # The shipped compose service as it is (user, capabilities, start step, arguments); only the folder is mounted
+        # from here. Calendar runs as this test's own user, so this is also the box where the two users differ (issue 74).
         if shutil.which('docker') and not os.environ.get('QA_RADICALE_PYTHON'):
             subprocess.run(['docker', 'rm', '-f', self.name], capture_output=True)
-            subprocess.run(['docker', 'run', '-d', '--name', self.name, '--user', f'{os.getuid()}:{os.getgid()}', '--cap-drop', 'ALL',
+            caps = [a for c in DAV.get('cap_add', []) for a in ('--cap-add', c)]
+            entry = DAV.get('entrypoint') or []
+            subprocess.run(['docker', 'run', '-d', '--name', self.name, '--user', DAV['user'], '--cap-drop', 'ALL', *caps,
                             '--security-opt', 'no-new-privileges:true', '--read-only', '--tmpfs', '/tmp',
-                            '-p', f'127.0.0.1:{self.port}:5232', '-v', f'{self.folder}:/var/lib/radicale', IMAGE, *ARGS],
+                            '-p', f'127.0.0.1:{self.port}:5232', '-v', f'{self.folder}:/var/lib/radicale',
+                            *(['--entrypoint', entry[0]] if entry else []), IMAGE, *entry[1:], *ARGS],
                            check=True, capture_output=True)
         else:
             args = [a.replace('/var/lib/radicale', str(self.folder)) for a in ARGS]
             args[args.index('--hosts') + 1] = f'127.0.0.1:{self.port}'
             self.proc = subprocess.Popen([sys.executable, '-m', 'radicale', *args], stderr=subprocess.DEVNULL)
-        self.wait()
+        if wait:
+            self.wait()
+
+    def docker(self):
+        return bool(shutil.which('docker') and not os.environ.get('QA_RADICALE_PYTHON'))
+
+    def state(self):
+        """(running, restarts, uid Radicale runs as, its effective capabilities) of the container."""
+        out = subprocess.run(['docker', 'inspect', self.name, '-f', '{{.State.Running}} {{.RestartCount}}'], capture_output=True, text=True).stdout.split()
+        status = subprocess.run(['docker', 'exec', self.name, 'cat', '/proc/1/status'], capture_output=True, text=True).stdout
+        field = {line.split(':')[0]: line.split(':', 1)[1].split() for line in status.splitlines() if ':' in line}
+        return (out[:1] == ['true'], int(out[1]) if len(out) > 1 else -1, (field.get('Uid') or ['?'])[0], (field.get('CapEff') or ['?'])[0])
+
+    def as_root(self, script):
+        """Run a shell line as root on the folder (what Docker or an older root Radicale leaves behind)."""
+        subprocess.run(['docker', 'run', '--rm', '--user', '0:0', '-v', f'{self.folder}:/f', '--entrypoint', 'sh', IMAGE, '-c', script],
+                       check=True, capture_output=True)
 
     def wait(self):
         for _ in range(150):
@@ -174,6 +194,57 @@ SEED = {'schemaVersion': 1, 'agentAccess': 'can_edit', 'events': [
      'location': '', 'description': '', 'rrule': '', 'exdates': [], 'overrides': {},
      'created': '2026-11-01T00:00:00+00:00', 'updated': '2026-11-01T00:00:00+00:00', 'by_agent': False},
 ]}
+
+
+def other_users(tmp, grants):
+    """Issue 74: Calendar runs as another user than the DAV service's recipe default (a box override such as
+    `user: 1000:1000`; here Calendar runs as this test's user, DAV as the recipe's root without capabilities)."""
+    me = f'{os.getuid()}:{os.getgid()}'
+    data, folder = tmp / 'data74', tmp / 'radicale74'
+    data.mkdir()
+    (data / 'switches.json').write_text(json.dumps({'radicale': True}))
+    rad = Radicale(folder)
+    rad.as_root('rm -rf /f/* /f/.[!.]*; chown 0:0 /f; chmod 755 /f')  # a fresh install: Docker made the folder as root
+    rad.start(wait=False)  # DAV first, before Calendar has written anything
+    time.sleep(3)
+    box = Box(data, rad, grants)
+    card = 'BEGIN:VCARD\r\nVERSION:3.0\r\nUID:u74\r\nFN:Uid Check\r\nEND:VCARD\r\n'
+    grant = {'X-Wizard-Grant': 'contacts-grant'}
+
+    def contacts():
+        return box.raw('PROPFIND', '/service/dav/', '', {'Depth': '0', **grant})[0]
+    try:
+        rad.wait()
+        running, restarts, uid, caps = rad.state()
+        check('other users, fresh install: DAV is up with 0 restarts', running and restarts == 0, (running, restarts))
+        check('other users: Radicale runs as Calendar\'s user, with no capabilities', uid == str(os.getuid()) and int(caps, 16) == 0, (uid, caps, me))
+        st, _, _ = box.raw('PUT', '/service/dav/u74.vcf', card, {'Content-Type': 'text/vcard', **grant})
+        check('other users, fresh install: logins work (PROPFIND 207, a card saved)', contacts() == 207 and st == 201, st)
+        users = folder / 'users'
+        mode = users.stat().st_mode & 0o777
+        text = users.read_text()
+        check('other users: the users file holds only a SHA-512-crypt hash and is not world-readable',
+              mode == 0o600 and text.startswith('owner:$6$') and len(text.strip().splitlines()) == 1, (oct(mode), text[:12]))
+        box.stop()
+        box = Box(data, rad, grants)  # Calendar restarts alone: a new secret
+        check('other users: after a Calendar restart (new secret) logins still work (PROPFIND 207)', contacts() == 207, contacts())
+        rad.stop()
+        rad.start()
+        running, restarts, _, _ = rad.state()
+        check('other users: a later DAV restart starts cleanly and logins work', running and restarts == 0 and contacts() == 207, (running, restarts))
+        # An update on a box where a root Radicale already made its folders (James's box after the chmod workaround).
+        rad.stop()
+        rad.as_root('mkdir -p /f/collections/collection-root/owner/contacts && touch /f/collections/.Radicale.lock '
+                    '&& chown -R 0:0 /f/collections && chmod 755 /f/collections /f/collections/collection-root')
+        rad.start()
+        running, restarts, _, _ = rad.state()
+        card2 = card.replace('u74', 'u74b')
+        st, _, _ = box.raw('PUT', '/service/dav/u74b.vcf', card2, {'Content-Type': 'text/vcard', **grant})
+        check('other users, update over folders a root Radicale made: up, and cards still save', running and restarts == 0
+              and st == 201 and contacts() == 207, (running, restarts, st))
+    finally:
+        box.stop()
+        rad.stop()
 
 
 def main():
@@ -326,7 +397,11 @@ def main():
     finally:
         box.stop()
         rad.stop()
-        shutil.rmtree(tmp, ignore_errors=True)
+    if rad.docker():
+        other_users(tmp, grants)
+    else:
+        print('SKIP other users (issue 74): needs docker to run the recipe\'s DAV service')
+    shutil.rmtree(tmp, ignore_errors=True)
     failed = [n for n, ok in checks if not ok]
     print(f'{len(checks) - len(failed)}/{len(checks)} passed')
     sys.exit(1 if failed else 0)

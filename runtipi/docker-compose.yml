@@ -49,8 +49,19 @@
       "cap_drop": [
         "ALL"
       ],
+      "cap_add": [
+        "CHOWN",
+        "SETUID",
+        "SETGID",
+        "SETPCAP"
+      ],
       "security_opt": [
         "no-new-privileges:true"
+      ],
+      "entrypoint": [
+        "/app/bin/python",
+        "-c",
+        "import ctypes, os, sys, time\nd = '/var/lib/radicale'\nf = d + '/users'\nfirst = os.stat(d)\nopened = False\nwhile not os.path.isfile(f):\n    if not opened:\n        print('wizard-calendar-dav: waiting for Calendar to write its password file', file=sys.stderr, flush=True)\n        if first.st_uid == os.getuid() and first.st_mode & 0o777 != 0o777:\n            os.chmod(d, 0o777)\n        opened = True\n    time.sleep(1)\nst = os.stat(f)\nuid, gid = st.st_uid, st.st_gid\nif opened and first.st_uid == os.getuid() and first.st_mode & 0o777 != 0o777:\n    os.chmod(d, first.st_mode & 0o7777)\nfor top, dirs, files in os.walk(d, onerror=lambda e: print('wizard-calendar-dav:', e, file=sys.stderr)):\n    for p in [top] + [os.path.join(top, n) for n in dirs + files]:\n        try:\n            s = os.lstat(p)\n            if (s.st_uid, s.st_gid) != (uid, gid):\n                os.lchown(p, uid, gid)\n        except OSError as e:\n            print('wizard-calendar-dav:', e, file=sys.stderr)\nlibc = ctypes.CDLL(None, use_errno=True)\nfor cap in range(64):\n    libc.prctl(24, cap, 0, 0, 0)  # PR_CAPBSET_DROP\nos.setgroups([])\nos.setgid(gid)\nos.setuid(uid)\nprint(f'wizard-calendar-dav: Radicale runs as {uid}:{gid}, the owner of Calendar\\'s password file', file=sys.stderr, flush=True)\nos.execv('/app/bin/python', ['/app/bin/python', '/app/bin/radicale', *sys.argv[1:]])\n"
       ],
       "mem_limit": "128m",
       "tmpfs": [

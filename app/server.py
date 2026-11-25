@@ -1194,8 +1194,18 @@ if __name__ == '__main__':
     prune_switches()
     if SYNC_INTERVAL > 0:
         threading.Thread(target=_sync_loop, name='ical-sync', daemon=True).start()
-    try:
-        RADICALE.secret()  # Radicale starts only once its htpasswd file exists (it restarts until then)
-    except OSError as exc:
-        print(f'radicale: cannot write its password file: {exc}', file=sys.stderr)
+    def _write_radicale_secret():
+        # Radicale starts only once its htpasswd file exists (its start step waits for it). Keep trying while the
+        # folder is not writable yet (a fresh install where Docker made it as root; the DAV service opens it).
+        told = False
+        while True:
+            try:
+                RADICALE.secret()
+                return
+            except OSError as exc:
+                if not told:
+                    print(f'radicale: cannot write its password file yet: {exc}', file=sys.stderr, flush=True)
+                    told = True
+            time.sleep(2)
+    threading.Thread(target=_write_radicale_secret, name='radicale-secret', daemon=True).start()
     ThreadingHTTPServer((BIND, PORT), Handler).serve_forever()
