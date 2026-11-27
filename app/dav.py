@@ -1,4 +1,4 @@
-"""Calendar on Radicale (issue 61, switch `radicale`, off by default).
+"""Calendar on Radicale (issue 61; on for everyone, its `radicale` switch is gone).
 
 Calendar ships a stock Radicale (ghcr.io/kozea/radicale, no fork) as a second service in its runtipi compose. It is on
 the app's own network only (no port, not on the Wizard's main network), so nothing but Calendar's server reaches it.
@@ -10,12 +10,13 @@ Collections, all owned by Radicale user `owner`:
   /owner/calendar/  the calendar on this Wizard (what was DATA/local.json): one .ics object per event series
   /owner/contacts/  the address book Contacts keeps there (humanitylabs-org/contacts, through /service/dav/)
 
-With the switch on, Radicale holds the events and DATA/local.json stays as a full mirror of them (written on every
-change and every read that pulled something new). So:
-  - switching on migrates every existing event across (each one is PUT once; nothing is removed from local.json),
+Radicale holds the events and DATA/local.json stays as a full mirror of them (written on every change and every read
+that pulled something new). So:
+  - the first read (or Calendar's start) migrates every existing event across (each one is PUT once; nothing is
+    removed from local.json),
   - a phone's change shows in Calendar on the next read (the collection's ctag changed: changed objects are parsed),
-  - switching off is instant and loses nothing: local.json already has every event (a last pull runs first),
-  - when Radicale is down Calendar keeps working from the mirror and pushes the pending changes later.
+  - when Radicale is down, or its data is wiped, Calendar keeps working from the mirror and pushes the pending changes
+    (or everything again) later.
 
 Book-keeping lives in local.json under `dav`: {objects: {uid: {href, etag, hash}}, ctag}. `hash` is the event as
 Calendar last synced it, so a change made in Calendar (hash differs) is pushed and one made on a phone (etag differs)
@@ -84,7 +85,11 @@ class Radicale:
             return self._secret
 
     def auth(self):
-        return 'Basic ' + base64.b64encode(f'{USER}:{self.secret()}'.encode()).decode()
+        try:
+            secret = self.secret()
+        except OSError as exc:  # its folder not writable yet (a fresh install): Radicale is not usable yet either
+            raise DavError(f'Radicale password file: {type(exc).__name__}') from None
+        return 'Basic ' + base64.b64encode(f'{USER}:{secret}'.encode()).decode()
 
     # ---------- HTTP ----------
     def request(self, method, path, body=None, headers=None, script_name=None):
@@ -196,7 +201,7 @@ class Radicale:
 
 
 class DavCalendar:
-    """local_cal.Local's load/save when the switch is on: Radicale is the store, local.json the mirror."""
+    """local_cal.Local's load/save: Radicale is the store, local.json the mirror."""
 
     def __init__(self, radicale, read_mirror, write_mirror, local_mod, timezone, log=None):
         self.rad, self.read_mirror, self.write_mirror, self.lc, self.tz = radicale, read_mirror, write_mirror, local_mod, timezone

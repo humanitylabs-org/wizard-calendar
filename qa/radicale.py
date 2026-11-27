@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Calendar on Radicale (issue 61, switch `radicale`): a real stock Radicale, a scratch Calendar, a "phone" that speaks
+"""Calendar on Radicale (issue 61, on for everyone; the `radicale` switch is gone): a real stock Radicale, a scratch Calendar, a "phone" that speaks
 CalDAV/CardDAV through Calendar's /dav/ path, and Contacts' grant-scoped /service/dav/ address book.
 
 python3 qa/radicale.py
@@ -7,8 +7,8 @@ python3 qa/radicale.py
 Radicale comes from the same pinned image the app ships (docker), or `python3 -m radicale` when it is installed
 (pip install radicale==3.9.2). Checks: migration of existing events (repeat, changed repeat, deleted repeat), phone
 add / edit / delete showing in Calendar, Calendar and agent changes and .ics imports landing in Radicale, the agent's
-tools unchanged, Contacts' address book (grant only, nothing else reachable), switching off with nothing lost, and a
-Radicale outage (Calendar keeps working from its mirror and catches up).
+tools unchanged, Contacts' address book (grant only, nothing else reachable), no switch left (a stale saved value is
+dropped), migration at Calendar's start without any read, and a Radicale outage (Calendar keeps working from its mirror and catches up).
 """
 import base64
 import json
@@ -202,7 +202,6 @@ def other_users(tmp, grants):
     me = f'{os.getuid()}:{os.getgid()}'
     data, folder = tmp / 'data74', tmp / 'radicale74'
     data.mkdir()
-    (data / 'switches.json').write_text(json.dumps({'radicale': True}))
     rad = Radicale(folder)
     rad.as_root('rm -rf /f/* /f/.[!.]*; chown 0:0 /f; chmod 755 /f')  # a fresh install: Docker made the folder as root
     rad.start(wait=False)  # DAV first, before Calendar has written anything
@@ -252,25 +251,32 @@ def main():
     data, folder = tmp / 'data', tmp / 'radicale'
     data.mkdir()
     (data / 'local.json').write_text(json.dumps(SEED))
+    (data / 'switches.json').write_text(json.dumps({'radicale': False, 'compact-header': True}))  # a box that had it off
     grants = tmp / 'grants.json'
     grants.write_text(json.dumps({'incoming': [{'from': 'contacts', 'sha256': hashlib.sha256(b'contacts-grant').hexdigest()}]}))
     rad = Radicale(folder)
     box = Box(data, rad, grants)  # writes Radicale's password file on start
     rad.start()
     try:
-        before, doc = box.titles()
-        check('switch is listed, off by default', any(s['id'] == 'radicale' and s['on'] is False and 'humanitylabs-org/wizard-calendar#61' in s['issues']
-                                                     for s in box.call('GET', '/api/switches', headers={'X-Wizard-Switch': '1'})[1]['switches']))
-        check('off: phones get nothing', phone(box, 'x', 'PROPFIND', '/dav/', '', {'Depth': '0'})[0] == 404)
-        check('off: nothing is put in Radicale', rad.stored() is None)
+        check('no radicale switch is listed any more', all(s['id'] != 'radicale' for s in
+                                                           box.call('GET', '/api/switches', headers={'X-Wizard-Switch': '1'})[1]['switches']))
+        check('a saved radicale value is dropped from switches.json on start, the others kept',
+              json.loads((data / 'switches.json').read_text()) == {'compact-header': True}, (data / 'switches.json').read_text())
+        for _ in range(60):  # Calendar's start copies the events across once Radicale answers, before anyone reads them
+            if (rad.stored() or {}) and ''.join(rad.stored().values()).count('BEGIN:VEVENT') == 4:
+                break
+            time.sleep(0.5)
+        check('on start, with no read: every existing event is copied into Radicale',
+              ''.join((rad.stored() or {}).values()).count('BEGIN:VEVENT') == 4, rad.stored())
+        check('phones are not let in without the password', phone(box, 'x', 'PROPFIND', '/dav/', '', {'Depth': '0'})[0] == 401)
+        before = ['Dentist', 'Holiday', 'Standup', 'Standup (late)']
         users = (folder / 'users').read_text()
         check('Radicale gets a SHA-512 hash, never a clear password', users.startswith('owner:$6$') and len(users.strip()) > 90, users[:12])
         check('Radicale itself refuses anyone without Calendar\'s password', urllib.request.Request is not None and
               _status(f'http://127.0.0.1:{rad.port}/owner/', 'owner:guess') == 401)
 
-        (data / 'switches.json').write_text(json.dumps({'radicale': True}))
         after, doc = box.titles()
-        check('on: the same events show (migrated)', after == before == ['Dentist', 'Holiday', 'Standup', 'Standup (late)'], after)
+        check('the same events show (migrated)', after == before == ['Dentist', 'Holiday', 'Standup', 'Standup (late)'], after)
         listing = ''.join((rad.stored() or {}).values())
         check('Radicale holds every event, with its repeat, changed repeat and deleted repeat',
               listing.count('BEGIN:VEVENT') == 4 and 'RRULE:FREQ=DAILY;COUNT=10' in listing
@@ -362,20 +368,14 @@ def main():
         st, _, body = phone(box, password, 'GET', f"/dav/owner/calendar/{made2.get('id')}.ics")
         check('back up: the pending event is pushed', st == 200 and 'Made while down' in body, st)
 
-        # Switch off: the old store, every event kept (phone's included)
         on_titles, _ = box.titles()
-        (data / 'switches.json').write_text(json.dumps({'radicale': False}))
-        off_titles, _ = box.titles()
-        check('off again: the same events from the old store, nothing lost', off_titles == on_titles and 'Lunch with Ana' in off_titles, (on_titles, off_titles))
-        check('off again: phones are shut out', phone(box, password, 'PROPFIND', '/dav/', '', {'Depth': '0'})[0] == 404)
         st, h, body = box.raw('GET', '/service/dav/c1.vcf', None, {'X-Wizard-Grant': 'contacts-grant'})
-        check('off again: Contacts can still read its cards once (told it is off)', st == 200 and 'Ana Lima' in body and h.get('X-Wizard-Radicale') == 'off', (st, h))
-        check('off again: Contacts cannot write', box.raw('PUT', '/service/dav/c2.vcf', card, {'Content-Type': 'text/vcard', 'X-Wizard-Grant': 'contacts-grant'})[0] == 404)
-        st, made3 = box.call('POST', '/api/live/create', {'account': 'local', 'title': 'Made while off', 'start': '2026-12-02T10:00'})
-        (data / 'switches.json').write_text(json.dumps({'radicale': True}))
+        check('Contacts is always told to sync (X-Wizard-Radicale: on)', st == 200 and 'Ana Lima' in body and h.get('X-Wizard-Radicale') == 'on', (st, h))
+        check('the .well-known CalDAV address leads phones to /dav/', box.raw('PROPFIND', '/.well-known/caldav')[0] == 301)
+        st, made3 = box.call('POST', '/api/live/create', {'account': 'local', 'title': 'Made later', 'start': '2026-12-02T10:00'})
         titles, _ = box.titles()
         st, _, body = phone(box, password, 'GET', f"/dav/owner/calendar/{made3.get('id')}.ics")
-        check('on again: changes made while off are synced', 'Made while off' in titles and st == 200 and titles == sorted(set(on_titles) | {'Made while off'}), titles)
+        check('a later change is synced', 'Made later' in titles and st == 200 and titles == sorted(set(on_titles) | {'Made later'}), titles)
         # Radicale's data lost (e.g. its folder wiped): Calendar keeps every event and copies them across again.
         rad.stop()
         shutil.rmtree(folder / 'collections', ignore_errors=True)

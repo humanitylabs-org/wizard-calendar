@@ -388,10 +388,10 @@
     },
     "/api/dav": {
       "get": {
-        "summary": "Phone sync status (owner page only; radicale switch). Never returns the password.",
+        "summary": "Phone sync status (owner page only). Never returns the password.",
         "responses": {
           "200": {
-            "description": "switch, enabled, username, url, last_sync, server_ok"
+            "description": "enabled, username, url, last_sync, server_ok"
           }
         }
       }
