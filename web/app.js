@@ -723,10 +723,9 @@
       <button class="btn" data-local-export>Export .ics</button>${phoneSync()}`;
   }
 
-  // Phone sync (issue 61, switch radicale): this Wizard's calendar and Contacts live in the bundled Radicale server,
+  // Phone sync (issue 61): this Wizard's calendar and Contacts live in the bundled Radicale server,
   // which a phone adds as a CalDAV / CardDAV account. The password is shown once, right after it is made.
   function phoneSync() {
-    if (!switchOn('radicale')) return '';
     return '<h3 class="wcs-h">Phone sync</h3><div data-phone-sync><p class="note">Loading…</p></div>';
   }
   async function drawPhoneSync(made) {

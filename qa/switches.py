@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Owner switch list QA (wizard.app-switches/1): the list has only live switches, and a removed switch's saved value
 (reply-on-event, dropped in issue 35; drag-events, on for everyone since issue 19; pinch-zoom, on for everyone since
-issue 43; three-day, on for everyone since issue 47; local-calendar, on for everyone since issue 58) is ignored and dropped from DATA/switches.json without touching the others.
+issue 43; three-day, on for everyone since issue 47; local-calendar, on for everyone since issue 58; radicale, on for everyone since issue 61) is ignored and dropped from DATA/switches.json without touching the others.
 
 python3 qa/switches.py
 """
@@ -20,15 +20,15 @@ import server  # noqa: E402
 
 checks = []
 ids = [s['id'] for s in server.SWITCHES]
-assert 'reply-on-event' not in ids and 'drag-events' not in ids and 'pinch-zoom' not in ids and 'three-day' not in ids and 'local-calendar' not in ids, ids
+assert 'reply-on-event' not in ids and 'drag-events' not in ids and 'pinch-zoom' not in ids and 'three-day' not in ids and 'local-calendar' not in ids and 'radicale' not in ids, ids
 assert all(s['default'] is False and s['issues'] for s in server.SWITCHES)
-checks.append('switch list has no reply-on-event, drag-events, pinch-zoom, three-day or local-calendar; every switch off by default with its issue')
+checks.append('switch list has no reply-on-event, drag-events, pinch-zoom, three-day, local-calendar or radicale; every switch off by default with its issue')
 
-(data / 'switches.json').write_text(json.dumps({'reply-on-event': True, 'drag-events': True, 'pinch-zoom': True, 'three-day': True, 'local-calendar': True, 'compact-header': True, 'trackpad-swipe': 'yes'}))
+(data / 'switches.json').write_text(json.dumps({'reply-on-event': True, 'drag-events': True, 'pinch-zoom': True, 'three-day': True, 'local-calendar': True, 'radicale': False, 'compact-header': True, 'trackpad-swipe': 'yes'}))
 doc = server.switches_doc()
 assert [s['id'] for s in doc['switches']] == ids
 assert {s['id']: s['on'] for s in doc['switches']}['compact-header'] is True
-checks.append('saved reply-on-event, drag-events, pinch-zoom, three-day and local-calendar values are ignored; other saved switches keep their state')
+checks.append('saved reply-on-event, drag-events, pinch-zoom, three-day, local-calendar and radicale values are ignored; other saved switches keep their state')
 
 server.prune_switches()
 assert json.loads((data / 'switches.json').read_text()) == {'compact-header': True}
